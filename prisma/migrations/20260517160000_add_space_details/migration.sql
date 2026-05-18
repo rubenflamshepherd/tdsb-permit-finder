@@ -1,0 +1,4 @@
+ALTER TABLE "Space" ADD COLUMN "areaSqm" DOUBLE PRECISION;
+ALTER TABLE "Space" ADD COLUMN "areaSqft" INTEGER;
+ALTER TABLE "Space" ADD COLUMN "detailAttributes" JSONB;
+ALTER TABLE "Space" ADD COLUMN "pictureFilenames" JSONB;

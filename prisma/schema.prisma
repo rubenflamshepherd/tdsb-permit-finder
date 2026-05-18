@@ -1,0 +1,98 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Facility {
+  id           Int       @id
+  name         String
+  address      String?
+  suite        String?
+  city         String?
+  province     String?
+  postalCode   String?
+  phone        String?
+  regionId     Int?
+  region       String?
+  latitude     Float?
+  longitude    Float?
+  hoursJson    Json?
+  pictureFilenames Json?
+  rawJson      Json
+  lastSyncedAt DateTime  @default(now())
+  spaces       Space[]
+  bookings     Booking[]
+  specialDates SpecialDate[]
+
+  @@index([name])
+  @@index([latitude, longitude])
+}
+
+model SpaceType {
+  id           Int      @id
+  name         String
+  requestByQty Boolean  @default(false)
+  rawJson      Json
+  lastSyncedAt DateTime @default(now())
+  spaces       Space[]
+}
+
+model Space {
+  id             Int       @id
+  facilityId     Int
+  spaceTypeId    Int?
+  name           String
+  type           String?
+  isAvailable    Boolean   @default(false)
+  isAvailableReg Boolean   @default(false)
+  hideFromPublic Boolean   @default(false)
+  areaSqm        Float?
+  areaSqft       Int?
+  hoursJson      Json?
+  detailAttributes Json?
+  pictureFilenames Json?
+  rawJson        Json
+  lastSyncedAt   DateTime  @default(now())
+  facility       Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  spaceType      SpaceType? @relation(fields: [spaceTypeId], references: [id])
+  bookings       Booking[]
+
+  @@index([facilityId])
+  @@index([spaceTypeId])
+  @@index([hideFromPublic, isAvailable])
+}
+
+model Booking {
+  id           String   @id
+  facilityId   Int
+  spaceId      Int?
+  startsAt     DateTime
+  endsAt       DateTime
+  statusId     Int?
+  purpose      String?
+  spacesLabel  String?
+  rawJson      Json
+  lastSyncedAt DateTime @default(now())
+  facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  space        Space?   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
+
+  @@index([facilityId, startsAt, endsAt])
+  @@index([spaceId, startsAt, endsAt])
+}
+
+model SpecialDate {
+  id           String   @id
+  facilityId   Int
+  startsOn     DateTime
+  endsOn       DateTime
+  reason       String?
+  rawJson      Json
+  lastSyncedAt DateTime @default(now())
+  facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+
+  @@index([facilityId, startsOn, endsOn])
+}

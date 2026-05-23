@@ -1,10 +1,16 @@
 "use client";
 
+import { useState } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { CATEGORY_LABELS, getFee, type FeeCategory, type TimeOfUse } from "@/lib/fees";
 
+type SettingsTab = "subsidy" | "layout";
+
 export const FEE_CATEGORIES: FeeCategory[] = ["A1", "A2", "B", "C"];
 export const CATEGORY_STORAGE_KEY = "tdsb-permit-finder.feeCategory";
+export const SCHEDULE_ORIENT_STORAGE_KEY = "tdsb-permit-finder.scheduleOrient";
+export type ScheduleOrient = "auto" | "days" | "times";
+export type EffectiveScheduleOrient = "days" | "times";
 
 const CATEGORY_DETAILS: Record<FeeCategory, { title: string; tagline: string; blurb: string }> = {
   A1: {
@@ -122,11 +128,16 @@ export function CategoryModal({
   feeCategory,
   onClose,
   onSelect,
+  effectiveScheduleOrient,
+  onChangeScheduleOrient,
 }: {
   feeCategory: FeeCategory;
   onClose: () => void;
   onSelect: (category: FeeCategory) => void;
+  effectiveScheduleOrient: EffectiveScheduleOrient;
+  onChangeScheduleOrient: (next: EffectiveScheduleOrient) => void;
 }) {
+  const [tab, setTab] = useState<SettingsTab>("subsidy");
   return (
     <div
       className="photo-modal-overlay"
@@ -138,44 +149,80 @@ export function CategoryModal({
       <div className="photo-modal category-modal" onClick={(event) => event.stopPropagation()}>
         <header className="photo-modal-header">
           <div>
-            <h3 id="category-modal-title">Which describes your group?</h3>
-            <div className="meta">TDSB charges different hourly rates based on the type of group renting the space. Pick the one that fits - you can change it later.</div>
+            <h3 id="category-modal-title">Settings</h3>
           </div>
           <button type="button" className="photo-modal-close" onClick={onClose} aria-label="Close">×</button>
         </header>
+        <nav className="tabs category-modal-tabs" aria-label="Settings sections">
+          <button
+            type="button"
+            className={tab === "subsidy" ? "active" : ""}
+            onClick={() => setTab("subsidy")}
+            aria-pressed={tab === "subsidy"}
+          >Subsidy</button>
+          <button
+            type="button"
+            className={tab === "layout" ? "active" : ""}
+            onClick={() => setTab("layout")}
+            aria-pressed={tab === "layout"}
+          >Schedule layout</button>
+        </nav>
         <div className="photo-modal-body category-modal-body">
-          <div className="category-options" role="radiogroup" aria-labelledby="category-modal-title">
-            {FEE_CATEGORIES.map((cat) => {
-              const detail = CATEGORY_DETAILS[cat];
-              const active = cat === feeCategory;
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  role="radio"
-                  aria-checked={active}
-                  className={`category-option${active ? " active" : ""}`}
-                  onClick={() => onSelect(cat)}
+          {tab === "subsidy" ? (
+            <>
+              <div className="meta category-modal-intro">TDSB charges different hourly rates based on the type of group renting the space. Pick the one that fits - you can change it later.</div>
+              <div className="category-options" role="radiogroup" aria-label="Group category">
+                {FEE_CATEGORIES.map((cat) => {
+                  const detail = CATEGORY_DETAILS[cat];
+                  const active = cat === feeCategory;
+                  return (
+                    <button
+                      key={cat}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      className={`category-option${active ? " active" : ""}`}
+                      onClick={() => onSelect(cat)}
+                    >
+                      <div className="category-option-head">
+                        <strong>{detail.title}</strong>
+                        <span className="category-option-tag">{detail.tagline}</span>
+                      </div>
+                      <span className="category-option-blurb">{detail.blurb}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="category-modal-source">
+                Rates from the{" "}
+                <a
+                  href="https://www.tdsb.on.ca/Portals/0/community/Permits/G02%20Fees%202025-2026.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
                 >
-                  <div className="category-option-head">
-                    <strong>{detail.title}</strong>
-                    <span className="category-option-tag">{detail.tagline}</span>
-                  </div>
-                  <span className="category-option-blurb">{detail.blurb}</span>
-                </button>
-              );
-            })}
-          </div>
-          <p className="category-modal-source">
-            Rates from the{" "}
-            <a
-              href="https://www.tdsb.on.ca/Portals/0/community/Permits/G02%20Fees%202025-2026.pdf"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              TDSB Facility Permit Fees schedule (Sept 2025 - Aug 2026)
-            </a>.
-          </p>
+                  TDSB Facility Permit Fees schedule (Sept 2025 - Aug 2026)
+                </a>.
+              </p>
+            </>
+          ) : (
+            <div role="group" aria-labelledby="schedule-layout-label">
+              <div id="schedule-layout-label" className="modal-section-label">Schedule layout</div>
+              <div className="segment">
+                <button
+                  type="button"
+                  className={effectiveScheduleOrient === "days" ? "active" : ""}
+                  onClick={() => onChangeScheduleOrient("days")}
+                  aria-pressed={effectiveScheduleOrient === "days"}
+                >Days as rows</button>
+                <button
+                  type="button"
+                  className={effectiveScheduleOrient === "times" ? "active" : ""}
+                  onClick={() => onChangeScheduleOrient("times")}
+                  aria-pressed={effectiveScheduleOrient === "times"}
+                >Times as rows</button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

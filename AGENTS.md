@@ -3,21 +3,36 @@
 ## Prisma Migrations
 
 This project uses Prisma with a Supabase Postgres database. The normal app
-`DATABASE_URL` points at the Supabase pooler on port `6543` with
-`pgbouncer=true`.
+`DATABASE_URL` points at the Supabase **transaction pooler** on port `6543`
+with `pgbouncer=true` — that pooler does not support DDL, so it can't be used
+for migrations.
 
-Do not use the pooled URL for applying migrations. `prisma migrate dev` and
-`prisma migrate deploy` can hang or fail against the pooler.
+`schema.prisma` has `directUrl = env("SUPABASE_CONNECTION_STRING")` so prisma
+picks up a migration-capable URL from env automatically. Set
+`SUPABASE_CONNECTION_STRING` in `.env` to the Supabase **session pooler** URL
+— same host as the transaction pooler but **port 5432** and no
+`pgbouncer=true`. (The "direct connection" URL on `db.<ref>.supabase.co:5432`
+also works but is IPv6-only on free tier, so the session pooler is the
+reliable choice over IPv4.) The session-pooler URL is also in
+`.env.staging.local` / `.env.production.local` for the respective databases.
 
-For remote migration application, use the direct Postgres port for that command
-only:
+Use `npm run prisma:migrate` (= `prisma migrate dev`) locally to create and
+apply new migrations. It needs an interactive terminal — if you're scripting
+or running in a non-TTY context, hand-write the migration SQL under
+`prisma/migrations/<timestamp>_<name>/migration.sql` following the existing
+style, then apply with `prisma migrate deploy`.
+
+For applying migrations to staging/production (or any other non-interactive
+context):
 
 ```bash
-DATABASE_URL="$(node -e 'const fs=require("fs"); const env=fs.readFileSync(".env","utf8"); const m=env.match(/^DATABASE_URL="?([^"\n]+)"?/m); if(!m) process.exit(1); const u=new URL(m[1]); u.port="5432"; u.searchParams.delete("pgbouncer"); process.stdout.write(u.toString())')" npx prisma migrate deploy
+set -a; source .env.production.local; set +a
+DATABASE_URL="$SUPABASE_CONNECTION_STRING" npx prisma migrate deploy
 ```
 
-Use `npm run prisma:migrate` only when working against a local or otherwise
-non-pooled development database.
+`migrate deploy` is idempotent — it applies any committed-but-unapplied
+migrations and does nothing if everything is up to date. Use this in CI, on
+prod cutovers, and after pulling a branch with new migrations.
 
 After changing `prisma/schema.prisma`, run:
 

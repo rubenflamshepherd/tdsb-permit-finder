@@ -46,7 +46,7 @@ export async function POST(request: Request) {
     });
   }
 
-  const nearest = [...facilityMap.values()].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, 5);
+  const nearest = [...facilityMap.values()].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, search.limit);
   const facilityIds = nearest.map((row) => row.facility.id);
 
   const [bookings, specialDates] = await Promise.all([

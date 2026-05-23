@@ -13,7 +13,7 @@ export type SpaceLike = {
   id: number; facilityId: number; spaceTypeId?: number | null; name: string; type?: string | null;
   isAvailable: boolean; hideFromPublic: boolean; hoursJson?: unknown; facility: FacilityLike;
 };
-export type BookingLike = { spaceId?: number | null; facilityId: number; startsAt: Date; endsAt: Date; purpose?: string | null };
+export type BookingLike = { spaceIds: number[]; facilityId: number; startsAt: Date; endsAt: Date; purpose?: string | null };
 export type SpecialDateLike = { facilityId: number; startsOn: Date; endsOn: Date; reason?: string | null };
 
 export type AvailabilityResult = {
@@ -51,7 +51,7 @@ export function computeAvailability(input: {
     .filter((space) => !facilitySet || facilitySet.has(space.facilityId))
     .map((space) => {
       const facilitySpecialDates = input.specialDates.filter((s) => s.facilityId === space.facilityId);
-      const relevantBookings = input.bookings.filter((b) => (b.spaceId ? b.spaceId === space.id : b.facilityId === space.facilityId));
+      const relevantBookings = input.bookings.filter((b) => (b.spaceIds.length > 0 ? b.spaceIds.includes(space.id) : b.facilityId === space.facilityId));
       const availableWindows: AvailabilityResult["availableWindows"] = [];
       const conflicts: AvailabilityResult["conflicts"] = [];
 

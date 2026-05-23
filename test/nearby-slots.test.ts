@@ -55,7 +55,7 @@ describe("computeNearbySchedule", () => {
   it("marks a slot 'rare' when blocked in exactly one week", () => {
     const schedule = computeNearbySchedule({
       ...baseInput,
-      bookings: [{ facilityId: 1, spaceId: 10, startsAt: new Date("2026-06-08T19:00:00"), endsAt: new Date("2026-06-08T19:30:00") }],
+      bookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-08T19:00:00"), endsAt: new Date("2026-06-08T19:30:00") }],
     });
     const monday = schedule.find((d) => d.day === 1)!;
     expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("rare");
@@ -67,8 +67,8 @@ describe("computeNearbySchedule", () => {
     const schedule = computeNearbySchedule({
       ...baseInput,
       bookings: [
-        { facilityId: 1, spaceId: 10, startsAt: new Date("2026-06-08T19:00:00"), endsAt: new Date("2026-06-08T19:30:00") },
-        { facilityId: 1, spaceId: 10, startsAt: new Date("2026-06-15T19:00:00"), endsAt: new Date("2026-06-15T19:30:00") },
+        { facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-08T19:00:00"), endsAt: new Date("2026-06-08T19:30:00") },
+        { facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-15T19:00:00"), endsAt: new Date("2026-06-15T19:30:00") },
       ],
     });
     const monday = schedule.find((d) => d.day === 1)!;
@@ -80,7 +80,7 @@ describe("computeNearbySchedule", () => {
     const schedule = computeNearbySchedule({
       ...baseInput,
       bookings: [1, 8, 15, 22].map((d) => ({
-        facilityId: 1, spaceId: 10,
+        facilityId: 1, spaceIds: [10],
         startsAt: new Date(`2026-06-${String(d).padStart(2, "0")}T19:00:00`),
         endsAt: new Date(`2026-06-${String(d).padStart(2, "0")}T19:30:00`),
       })),
@@ -93,7 +93,7 @@ describe("computeNearbySchedule", () => {
   it("records per-week availability for each slot", () => {
     const schedule = computeNearbySchedule({
       ...baseInput,
-      bookings: [{ facilityId: 1, spaceId: 10, startsAt: new Date("2026-06-15T19:00:00"), endsAt: new Date("2026-06-15T19:30:00") }],
+      bookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-15T19:00:00"), endsAt: new Date("2026-06-15T19:30:00") }],
     });
     const slot = schedule.find((d) => d.day === 1)!.slots.find((s) => s.start === "19:00")!;
     expect(slot.weeks).toEqual([
@@ -102,6 +102,43 @@ describe("computeNearbySchedule", () => {
       { date: "2026-06-15", available: false },
       { date: "2026-06-22", available: true },
     ]);
+  });
+
+  it("blocks only the spaces listed in a multi-space booking, leaving sibling spaces free", () => {
+    const otherSpace: SpaceLike = { ...baseSpace, id: 11, name: "Pool" };
+    const thirdSpace: SpaceLike = { ...baseSpace, id: 12, name: "Auditorium" };
+    // Booking covers spaces 10 and 11. Space 12 (Auditorium) is a sibling at the same facility
+    // that should remain available — pre-fix this was treated as facility-wide and blocked too.
+    const schedule = computeNearbySchedule({
+      ...baseInput,
+      spaces: [baseSpace, otherSpace, thirdSpace],
+      bookings: [{ facilityId: 1, spaceIds: [10, 11], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T19:30:00") }],
+    });
+    const monday = schedule.find((d) => d.day === 1)!;
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("available");
+    expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(4);
+  });
+
+  it("blocks every space in the multi-space booking when no sibling exists", () => {
+    const otherSpace: SpaceLike = { ...baseSpace, id: 11, name: "Pool" };
+    const schedule = computeNearbySchedule({
+      ...baseInput,
+      spaces: [baseSpace, otherSpace],
+      bookings: [{ facilityId: 1, spaceIds: [10, 11], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T19:30:00") }],
+    });
+    const monday = schedule.find((d) => d.day === 1)!;
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("rare");
+    expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(3);
+  });
+
+  it("falls back to facility-wide blocking when spaceIds is empty", () => {
+    const schedule = computeNearbySchedule({
+      ...baseInput,
+      bookings: [{ facilityId: 1, spaceIds: [], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T19:30:00") }],
+    });
+    const monday = schedule.find((d) => d.day === 1)!;
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("rare");
+    expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(3);
   });
 
   it("treats a facility special date as a blocker for every slot that day", () => {

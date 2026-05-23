@@ -5,7 +5,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CategoryModal, CATEGORY_STORAGE_KEY, FEE_CATEGORIES, FeeBadge, SettingsButton } from "@/app/components/fee-ui";
+import { CategoryModal, CATEGORY_STORAGE_KEY, FEE_CATEGORIES, FeeBadge, SCHEDULE_ORIENT_STORAGE_KEY, SettingsButton, type EffectiveScheduleOrient, type ScheduleOrient } from "@/app/components/fee-ui";
 import { PhotoGalleryModal, type GallerySpace } from "@/app/components/photo-gallery-modal";
 import type { AvailabilitySearchResponse, NearbySchool, NearbySearchResponse } from "@/lib/api-contracts";
 import { pickTimeOfUse, type FeeCategory } from "@/lib/fees";
@@ -162,6 +162,7 @@ export default function Home() {
     startTime: "18:00",
     endTime: "20:00",
     weeks: 8,
+    limit: 5,
     point: { lat: 43.6532, lng: -79.3832 },
   });
   const [spaceTypeOpen, setSpaceTypeOpen] = useState(false);
@@ -170,6 +171,9 @@ export default function Home() {
   const [gallerySpace, setGallerySpace] = useState<GallerySpace | null>(null);
   const [feeCategory, setFeeCategory] = useState<FeeCategory>("B");
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [scheduleOrient, setScheduleOrient] = useState<ScheduleOrient>("auto");
+  const [autoEffectiveOrient, setAutoEffectiveOrient] = useState<EffectiveScheduleOrient>("times");
 
   useEffect(() => {
     window.setTimeout(() => {
@@ -179,13 +183,35 @@ export default function Home() {
       } else {
         setCategoryModalOpen(true);
       }
+      const storedOrient = window.localStorage.getItem(SCHEDULE_ORIENT_STORAGE_KEY);
+      if (storedOrient === "days" || storedOrient === "times") setScheduleOrient(storedOrient);
     }, 0);
   }, []);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 640px)");
+    const update = () => setAutoEffectiveOrient(mq.matches ? "days" : "times");
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle("schedule-orient-days", scheduleOrient === "days");
+    document.body.classList.toggle("schedule-orient-times", scheduleOrient === "times");
+  }, [scheduleOrient]);
+
+  const effectiveScheduleOrient: EffectiveScheduleOrient = scheduleOrient === "auto" ? autoEffectiveOrient : scheduleOrient;
 
   function selectFeeCategory(next: FeeCategory) {
     setFeeCategory(next);
     window.localStorage.setItem(CATEGORY_STORAGE_KEY, next);
     setCategoryModalOpen(false);
+  }
+
+  function selectScheduleOrient(next: EffectiveScheduleOrient) {
+    setScheduleOrient(next);
+    window.localStorage.setItem(SCHEDULE_ORIENT_STORAGE_KEY, next);
   }
 
   useEffect(() => {
@@ -221,6 +247,7 @@ export default function Home() {
     startTime: nearbyForm.startTime,
     endTime: nearbyForm.endTime,
     weeks: nearbyForm.weeks,
+    limit: nearbyForm.limit,
     spaceTypeId: form.spaceTypeId,
   });
 
@@ -311,6 +338,7 @@ export default function Home() {
           startTime: nearbyForm.startTime,
           endTime: nearbyForm.endTime,
           weeks: Number(nearbyForm.weeks),
+          limit: Number(nearbyForm.limit),
           spaceTypeId: form.spaceTypeId ? Number(form.spaceTypeId) : undefined,
         }),
       });
@@ -507,7 +535,15 @@ export default function Home() {
       <SettingsButton feeCategory={feeCategory} onClick={() => setCategoryModalOpen(true)} />
 
       <section className="hero">
-        <div className="eyebrow">TDSB permit finder</div>
+        <div className="eyebrow">
+          <svg className="eyebrow-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+            <path d="M15 22a1 1 0 0 1-1-1v-4a1 1 0 0 1 .445-.832l3-2a1 1 0 0 1 1.11 0l3 2A1 1 0 0 1 22 17v4a1 1 0 0 1-1 1z" />
+            <path d="M18 10a8 8 0 0 0-16 0c0 4.993 5.539 10.193 7.399 11.799a1 1 0 0 0 .601.2" />
+            <path d="M18 22v-3" />
+            <circle cx="10" cy="10" r="3" />
+          </svg>
+          <span>TDSB permit finder</span>
+        </div>
         <h1>Find school spaces that fit your schedule.</h1>
         <p>Search cached TDSB facility, room, booking, and closure data to identify spaces that appear available for a recurring time window.</p>
       </section>
@@ -614,11 +650,23 @@ export default function Home() {
                   </div>
                 ) : null}
               </div>
-              <div className="map-controls">
-                <div className="grid compact-grid">
+              <div className={`map-controls${filtersOpen ? " is-open" : ""}`}>
+                <button
+                  type="button"
+                  className="map-controls-handle"
+                  onClick={() => setFiltersOpen((v) => !v)}
+                  aria-expanded={filtersOpen}
+                  aria-controls="map-controls-fields"
+                >
+                  <span className="map-controls-handle-grab" aria-hidden />
+                  <span className="map-controls-handle-label">Filters</span>
+                  <span className="map-controls-handle-chevron" aria-hidden>{filtersOpen ? "▾" : "▴"}</span>
+                </button>
+                <div id="map-controls-fields" className="grid compact-grid map-controls-fields">
                   {spaceTypePicker}
-                  <label>Week of<input type="date" value={nearbyForm.startDate} onChange={(e) => setNearbyForm({ ...nearbyForm, startDate: e.target.value })} /></label>
-                  <label>Weeks<input type="number" min="1" max="26" value={nearbyForm.weeks} onChange={(e) => setNearbyForm({ ...nearbyForm, weeks: Number(e.target.value) })} /></label>
+                  <label>From week of<input type="date" value={nearbyForm.startDate} onChange={(e) => setNearbyForm({ ...nearbyForm, startDate: e.target.value })} /></label>
+                  <label>Look N weeks ahead<input type="number" min="1" max="26" value={nearbyForm.weeks} onChange={(e) => setNearbyForm({ ...nearbyForm, weeks: Number(e.target.value) })} /></label>
+                  <label>Closest N schools<input type="number" min="1" max="20" value={nearbyForm.limit} onChange={(e) => setNearbyForm({ ...nearbyForm, limit: Number(e.target.value) })} /></label>
                   <label>Start time<input type="time" value={nearbyForm.startTime} onChange={(e) => setNearbyForm({ ...nearbyForm, startTime: e.target.value })} /></label>
                   <label>End time<input type="time" value={nearbyForm.endTime} onChange={(e) => setNearbyForm({ ...nearbyForm, endTime: e.target.value })} /></label>
                 </div>
@@ -673,14 +721,14 @@ export default function Home() {
                     <div className="schedule-grid" role="grid" aria-label={`${school.facility.name} weekly schedule`}>
                       <div className="schedule-header" role="row">
                         <span className="schedule-corner" aria-hidden />
-                        {school.schedule.map((day) => (
-                          <span key={day.day} className="schedule-day-label" role="columnheader">{day.label}</span>
+                        {school.schedule.map((day, dayIdx) => (
+                          <span key={day.day} className="schedule-day-label" role="columnheader" style={{ "--day-idx": dayIdx } as React.CSSProperties}>{day.label}</span>
                         ))}
                       </div>
                       {slotTemplate.map((templateSlot, idx) => (
                         <div className="schedule-row" key={templateSlot.start} role="row">
-                          <span className="schedule-time-label" role="rowheader">{templateSlot.start}</span>
-                          {school.schedule.map((day) => {
+                          <span className="schedule-time-label" role="rowheader" style={{ "--slot-idx": idx } as React.CSSProperties}>{templateSlot.start}</span>
+                          {school.schedule.map((day, dayIdx) => {
                             const slot = day.slots[idx];
                             return (
                               <Tooltip.Root key={day.day}>
@@ -689,6 +737,7 @@ export default function Home() {
                                     role="gridcell"
                                     tabIndex={0}
                                     className={`slot-cell ${slot.status}`}
+                                    style={{ "--day-idx": dayIdx, "--slot-idx": idx } as React.CSSProperties}
                                     aria-label={`${day.label} ${slot.start} to ${slot.end}: ${slot.availableWeeks} of ${slot.totalWeeks} weeks free`}
                                   />
                                 </Tooltip.Trigger>
@@ -730,7 +779,7 @@ export default function Home() {
       )}
 
       {categoryModalOpen ? (
-        <CategoryModal feeCategory={feeCategory} onClose={() => setCategoryModalOpen(false)} onSelect={selectFeeCategory} />
+        <CategoryModal feeCategory={feeCategory} onClose={() => setCategoryModalOpen(false)} onSelect={selectFeeCategory} effectiveScheduleOrient={effectiveScheduleOrient} onChangeScheduleOrient={selectScheduleOrient} />
       ) : null}
 
       {gallerySpace ? <PhotoGalleryModal gallerySpace={gallerySpace} onClose={() => setGallerySpace(null)} /> : null}

@@ -99,7 +99,7 @@ export function computeNearbySchedule(input: NearbyScheduleInput): DaySchedule[]
         const free = input.spaces.some((space) => {
           if (specialDateBlocks(interval, input.specialDates)) return false;
           if (!withinHours(interval, space.hoursJson, input.facilityHours)) return false;
-          const bookingsForSpace = input.bookings.filter((b) => (b.spaceId ? b.spaceId === space.id : b.facilityId === space.facilityId));
+          const bookingsForSpace = input.bookings.filter((b) => (b.spaceIds.length > 0 ? b.spaceIds.includes(space.id) : b.facilityId === space.facilityId));
           return !bookingsForSpace.some((b) => overlaps(interval, { start: b.startsAt, end: b.endsAt }));
         });
         slotWeeks[idx].push({ date, available: free });

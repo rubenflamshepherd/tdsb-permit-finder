@@ -18,6 +18,25 @@ function bookingSyncExcludedFacilityIds(): number[] {
   return parseFacilityIdList(process.env.BOOKING_SYNC_EXCLUDED_FACILITY_IDS ?? DEFAULT_BOOKING_SYNC_EXCLUDED_FACILITY_IDS.join(","));
 }
 
+export function resolveBookingSpaceIds(
+  facilityId: number,
+  spacesLabel: string | null | undefined,
+  spaceMap: Map<number, Map<string, number>>,
+): number[] {
+  if (!spacesLabel) return [];
+  const names = spaceMap.get(facilityId);
+  if (!names) return [];
+  const whole = names.get(spacesLabel);
+  if (whole != null) return [whole];
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const part of spacesLabel.split(", ")) {
+    const id = names.get(part);
+    if (id != null && !seen.has(id)) { seen.add(id); ids.push(id); }
+  }
+  return ids;
+}
+
 function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
@@ -165,10 +184,23 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     return result;
   });
 
+  const spaceRows = await prisma.space.findMany({
+    where: { facilityId: { in: facilities.map((f) => f.id) } },
+    select: { id: true, facilityId: true, name: true },
+    orderBy: { id: "asc" },
+  });
+  const spaceMap = new Map<number, Map<string, number>>();
+  for (const row of spaceRows) {
+    let names = spaceMap.get(row.facilityId);
+    if (!names) { names = new Map(); spaceMap.set(row.facilityId, names); }
+    if (names.has(row.name)) console.warn(`duplicate space name "${row.name}" at facility ${row.facilityId}; keeping space id ${names.get(row.name)}, ignoring ${row.id}`);
+    else names.set(row.name, row.id);
+  }
+
   const bookings = results.flatMap((r) => r.bookings.map((b) => ({
     id: String(b.id),
     facilityId: r.facilityId,
-    spaceId: null,
+    spaceIds: resolveBookingSpaceIds(r.facilityId, b.spaces, spaceMap),
     startsAt: parseLocalDateTime(b.start),
     endsAt: parseLocalDateTime(b.end),
     statusId: b.status_id == null ? null : Number(b.status_id),
@@ -177,6 +209,10 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     rawJson: toJson(b),
     lastSyncedAt: new Date(),
   })));
+  const singleSpace = bookings.filter((b) => b.spaceIds.length === 1).length;
+  const multiSpace = bookings.filter((b) => b.spaceIds.length > 1).length;
+  const empty = bookings.length - singleSpace - multiSpace;
+  console.log(`resolved spaceIds: ${singleSpace} single + ${multiSpace} multi-space = ${singleSpace + multiSpace}/${bookings.length} bookings (${empty} empty → facility-level fallback)`);
   const specialDates = results.flatMap((r) => r.specialDates.map((s) => ({
     id: `${r.facilityId}:${s.id}`,
     facilityId: r.facilityId,

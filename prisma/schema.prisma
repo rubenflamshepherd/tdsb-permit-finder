@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("SUPABASE_CONNECTION_STRING")
 }
 
 model Facility {
@@ -59,7 +60,6 @@ model Space {
   lastSyncedAt   DateTime  @default(now())
   facility       Facility  @relation(fields: [facilityId], references: [id], onDelete: Cascade)
   spaceType      SpaceType? @relation(fields: [spaceTypeId], references: [id])
-  bookings       Booking[]
 
   @@index([facilityId])
   @@index([spaceTypeId])
@@ -69,7 +69,7 @@ model Space {
 model Booking {
   id           String   @id
   facilityId   Int
-  spaceId      Int?
+  spaceIds     Int[]
   startsAt     DateTime
   endsAt       DateTime
   statusId     Int?
@@ -78,10 +78,9 @@ model Booking {
   rawJson      Json
   lastSyncedAt DateTime @default(now())
   facility     Facility @relation(fields: [facilityId], references: [id], onDelete: Cascade)
-  space        Space?   @relation(fields: [spaceId], references: [id], onDelete: Cascade)
 
   @@index([facilityId, startsAt, endsAt])
-  @@index([spaceId, startsAt, endsAt])
+  @@index([spaceIds], type: Gin)
 }
 
 model SpecialDate {

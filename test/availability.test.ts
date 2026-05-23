@@ -16,7 +16,7 @@ describe("computeAvailability", () => {
     const results = computeAvailability({
       search,
       spaces: [space],
-      bookings: [{ facilityId: 1, spaceId: 10, startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T21:00:00") }],
+      bookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T21:00:00") }],
       specialDates: [],
     });
     expect(results).toHaveLength(0);
@@ -26,7 +26,7 @@ describe("computeAvailability", () => {
     const results = computeAvailability({
       search: { ...search, matchMode: "partial" },
       spaces: [space],
-      bookings: [{ facilityId: 1, spaceId: 10, startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T21:00:00") }],
+      bookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T21:00:00") }],
       specialDates: [],
     });
     expect(results).toHaveLength(1);

@@ -4,6 +4,20 @@ import { prisma } from "./prisma";
 import { decodeHtmlEntities } from "./html-entities";
 import { TdsbClient, TdsbFacility, TdsbSpace, TdsbSpaceDetails } from "./tdsb-client";
 
+export const DEFAULT_BOOKING_SYNC_EXCLUDED_FACILITY_IDS = [175, 314, 660, 769];
+
+export function parseFacilityIdList(value?: string | null): number[] {
+  if (value == null) return [];
+  return [...new Set(value
+    .split(",")
+    .map((part) => Number(part.trim()))
+    .filter((id) => Number.isInteger(id) && id > 0))];
+}
+
+function bookingSyncExcludedFacilityIds(): number[] {
+  return parseFacilityIdList(process.env.BOOKING_SYNC_EXCLUDED_FACILITY_IDS ?? DEFAULT_BOOKING_SYNC_EXCLUDED_FACILITY_IDS.join(","));
+}
+
 function toJson(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
@@ -135,7 +149,11 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
   const start = startDate ?? format(new Date(), "yyyy-MM-dd");
   const end = endDate ?? format(addDays(new Date(), Number(process.env.BOOKING_SYNC_DAYS ?? 180)), "yyyy-MM-dd");
   const concurrency = Number(process.env.SYNC_CONCURRENCY ?? 12);
-  const facilities = facilityIds?.length ? facilityIds.map((id) => ({ id })) : await prisma.facility.findMany({ select: { id: true }, orderBy: { id: "asc" } });
+  const excludedFacilityIds = new Set(bookingSyncExcludedFacilityIds());
+  const allFacilities = facilityIds?.length ? facilityIds.map((id) => ({ id })) : await prisma.facility.findMany({ select: { id: true }, orderBy: { id: "asc" } });
+  const facilities = allFacilities.filter((facility) => !excludedFacilityIds.has(facility.id));
+  const skippedFacilities = allFacilities.length - facilities.length;
+  if (skippedFacilities > 0) console.log(`skipping ${skippedFacilities} booking sync facilities: ${[...excludedFacilityIds].sort((a, b) => a - b).join(", ")}`);
 
   const results = await mapLimit(facilities, concurrency, async (facility, index) => {
     const result = { facilityId: facility.id, bookings: [] as Awaited<ReturnType<TdsbClient["bookings"]>>, specialDates: [] as Awaited<ReturnType<TdsbClient["specialDates"]>>, failed: false };
@@ -173,5 +191,5 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
   for (const group of chunks(bookings, 1000)) await prisma.booking.createMany({ data: group, skipDuplicates: true });
   for (const group of chunks(specialDates, 1000)) await prisma.specialDate.createMany({ data: group, skipDuplicates: true });
 
-  return { facilities: facilities.length, bookings: bookings.length, specialDates: specialDates.length, failures: results.filter((r) => r.failed).length, startDate: start, endDate: end };
+  return { facilities: facilities.length, skippedFacilities, bookings: bookings.length, specialDates: specialDates.length, failures: results.filter((r) => r.failed).length, startDate: start, endDate: end };
 }

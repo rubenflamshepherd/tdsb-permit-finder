@@ -7,6 +7,7 @@ import {
   resolveBookingSpaces,
   resolveBookingSpaceIds,
 } from "../lib/sync";
+import { parseLocalDateTime } from "../lib/time";
 
 describe("parseFacilityIdList", () => {
   it("parses comma-separated positive integer ids", () => {
@@ -107,13 +108,13 @@ describe("booking sync replacement planning", () => {
     expect(bookingSyncReplacementWhere([101, 103], "2026-06-01", "2026-06-30")).toEqual({
       booking: {
         facilityId: { in: [101, 103] },
-        startsAt: { lte: new Date("2026-06-30T23:59:59") },
-        endsAt: { gte: new Date("2026-06-01T00:00:00") },
+        startsAt: { lte: parseLocalDateTime("2026-06-30 23:59:59") },
+        endsAt: { gte: parseLocalDateTime("2026-06-01 00:00:00") },
       },
       specialDate: {
         facilityId: { in: [101, 103] },
-        startsOn: { lte: new Date("2026-06-30T23:59:59") },
-        endsOn: { gte: new Date("2026-06-01T00:00:00") },
+        startsOn: { lte: parseLocalDateTime("2026-06-30 23:59:59") },
+        endsOn: { gte: parseLocalDateTime("2026-06-01 00:00:00") },
       },
     });
   });

@@ -1,13 +1,16 @@
-import { format, isBefore, parse } from "date-fns";
+import { format, isBefore } from "date-fns";
+import { fromZonedTime } from "date-fns-tz";
 
 export type Interval = { start: Date; end: Date };
 
+const TDSB_TIME_ZONE = "America/Toronto";
+
 export function parseLocalDateTime(value: string): Date {
-  return parse(value, "yyyy-MM-dd HH:mm:ss", new Date());
+  return fromZonedTime(value.replace(" ", "T"), TDSB_TIME_ZONE);
 }
 
 export function parseDateWithTime(date: string, time: string): Date {
-  return parse(`${date} ${time}`, "yyyy-MM-dd HH:mm", new Date());
+  return fromZonedTime(`${date}T${time}`, TDSB_TIME_ZONE);
 }
 
 export function overlaps(a: Interval, b: Interval): boolean {

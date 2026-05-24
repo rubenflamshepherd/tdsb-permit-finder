@@ -3,6 +3,7 @@ import { addDays, format, isBefore } from "date-fns";
 import { prisma } from "./prisma";
 import { decodeHtmlEntities } from "./html-entities";
 import { TdsbClient, TdsbFacility, TdsbSpace, TdsbSpaceDetails } from "./tdsb-client";
+import { parseLocalDateTime } from "./time";
 
 export const DEFAULT_BOOKING_SYNC_EXCLUDED_FACILITY_IDS = [175, 314, 660, 769];
 
@@ -157,10 +158,6 @@ function toJson(value: unknown): Prisma.InputJsonValue {
 function parseJsonish(raw?: string | null): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined {
   if (!raw || raw === "[]") return undefined;
   try { return toJson(JSON.parse(raw)); } catch { return toJson(raw); }
-}
-
-function parseLocalDateTime(value: string): Date {
-  return new Date(value.replace(" ", "T"));
 }
 
 function chunks<T>(arr: T[], size: number): T[][] {

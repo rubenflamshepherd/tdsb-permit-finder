@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SpaceLike } from "../lib/availability";
-import { computeNearbySchedule, enumerateSlots, hasHistoricalAvailableSpace } from "../lib/nearby-slots";
+import { computeNearbySchedule, enumerateSlots, hasHistoricalAvailableSpace, hasLastYearHistoricalAvailableSpace, historicalHatchLevelForSlot, type SpaceLike } from "../lib/nearby-slots";
 
 const facility = { id: 1, name: "Test School", hoursJson: null };
 const baseSpace: SpaceLike = {
@@ -67,18 +66,18 @@ describe("computeNearbySchedule", () => {
     expect(monday.slots.every((s) => s.availableWeeks === 4 && s.totalWeeks === 4)).toBe(true);
   });
 
-  it("marks a slot 'rare' when blocked in exactly one week", () => {
+  it("marks a slot 'mostly' when 60-80% of weeks are available", () => {
     const schedule = computeNearbySchedule({
       ...baseInput,
       bookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-08T19:00:00"), endsAt: new Date("2026-06-08T19:30:00") }],
     });
     const monday = schedule.find((d) => d.day === 1)!;
-    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("rare");
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("mostly");
     expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(3);
     expect(monday.slots.find((s) => s.start === "18:00")!.status).toBe("available");
   });
 
-  it("marks a slot 'frequent' when blocked in multiple weeks but not all", () => {
+  it("marks a slot 'limited' when 40-59% of weeks are available", () => {
     const schedule = computeNearbySchedule({
       ...baseInput,
       bookings: [
@@ -87,11 +86,11 @@ describe("computeNearbySchedule", () => {
       ],
     });
     const monday = schedule.find((d) => d.day === 1)!;
-    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("frequent");
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("limited");
     expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(2);
   });
 
-  it("marks a slot 'unavailable' when blocked in every week", () => {
+  it("marks a slot 'unavailable' when less than 40% of weeks are available", () => {
     const schedule = computeNearbySchedule({
       ...baseInput,
       bookings: [1, 8, 15, 22].map((d) => ({
@@ -103,6 +102,17 @@ describe("computeNearbySchedule", () => {
     const monday = schedule.find((d) => d.day === 1)!;
     expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("unavailable");
     expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(0);
+  });
+
+  it("marks a slot 'available' when more than 80% of weeks are available", () => {
+    const schedule = computeNearbySchedule({
+      ...baseInput,
+      weeks: 6,
+      bookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-08T19:00:00"), endsAt: new Date("2026-06-08T19:30:00") }],
+    });
+    const monday = schedule.find((d) => d.day === 1)!;
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("available");
+    expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(5);
   });
 
   it("records per-week availability for each slot", () => {
@@ -142,7 +152,7 @@ describe("computeNearbySchedule", () => {
       bookings: [{ facilityId: 1, spaceIds: [10, 11], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T19:30:00") }],
     });
     const monday = schedule.find((d) => d.day === 1)!;
-    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("rare");
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("mostly");
     expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(3);
   });
 
@@ -152,7 +162,7 @@ describe("computeNearbySchedule", () => {
       bookings: [{ facilityId: 1, spaceIds: [], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T19:30:00") }],
     });
     const monday = schedule.find((d) => d.day === 1)!;
-    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("rare");
+    expect(monday.slots.find((s) => s.start === "19:00")!.status).toBe("mostly");
     expect(monday.slots.find((s) => s.start === "19:00")!.availableWeeks).toBe(3);
   });
 
@@ -164,7 +174,7 @@ describe("computeNearbySchedule", () => {
     });
     const monday = schedule.find((d) => d.day === 1)!;
     expect(monday.slots.every((s) => s.availableWeeks === 1)).toBe(true);
-    expect(monday.slots.every((s) => s.status === "rare")).toBe(true);
+    expect(monday.slots.every((s) => s.status === "limited")).toBe(true);
   });
 
   it("records no historical years when there are no historical bookings", () => {
@@ -248,5 +258,39 @@ describe("computeNearbySchedule", () => {
       ],
     });
     expect(hasHistoricalAvailableSpace(slot)).toBe(false);
+    expect(hasLastYearHistoricalAvailableSpace(slot)).toBe(false);
+  });
+
+  it("marks the cell historical for last-year history but not two-years-ago-only history", () => {
+    const lastYearSlot = mondaySlot({
+      ...historicalInput,
+      historicalBookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") }],
+    });
+    const twoYearsAgoSlot = mondaySlot({
+      ...historicalInput,
+      historicalBookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2024-05-27T18:00:00"), endsAt: new Date("2024-05-27T18:30:00") }],
+    });
+
+    expect(hasLastYearHistoricalAvailableSpace(lastYearSlot)).toBe(true);
+    expect(hasHistoricalAvailableSpace(twoYearsAgoSlot)).toBe(true);
+    expect(hasLastYearHistoricalAvailableSpace(twoYearsAgoSlot)).toBe(false);
+  });
+
+  it("sets historical hatch intensity from last-year booked share", () => {
+    const slotWithHistory = (days: number[]) => mondaySlot({
+      ...baseInput,
+      weeks: 5,
+      historicalBookings: days.map((d) => ({
+        facilityId: 1,
+        spaceIds: [10],
+        startsAt: new Date(`2025-06-${String(d).padStart(2, "0")}T19:00:00`),
+        endsAt: new Date(`2025-06-${String(d).padStart(2, "0")}T19:30:00`),
+      })),
+    }, "19:00");
+
+    expect(historicalHatchLevelForSlot(slotWithHistory([2]))).toBe("none");
+    expect(historicalHatchLevelForSlot(slotWithHistory([2, 9]))).toBe("light");
+    expect(historicalHatchLevelForSlot(slotWithHistory([2, 9, 16]))).toBe("light");
+    expect(historicalHatchLevelForSlot(slotWithHistory([2, 9, 16, 23]))).toBe("strong");
   });
 });

@@ -1,9 +1,20 @@
 import { addDays, addWeeks, format, parseISO, startOfWeek, subWeeks } from "date-fns";
-import type { BookingLike, SpaceLike, SpecialDateLike } from "./availability";
 import { withinHours } from "./hours";
 import { dateOnly, Interval, overlaps, parseDateWithTime } from "./time";
 
-export type SlotStatus = "available" | "rare" | "frequent" | "unavailable";
+export type FacilityLike = {
+  id: number; name: string; address?: string | null; city?: string | null; postalCode?: string | null;
+  latitude?: number | null; longitude?: number | null; hoursJson?: unknown;
+};
+export type SpaceLike = {
+  id: number; facilityId: number; spaceTypeId?: number | null; name: string; type?: string | null;
+  isAvailable: boolean; hideFromPublic: boolean; hoursJson?: unknown; facility: FacilityLike;
+};
+export type BookingLike = { spaceIds: number[]; facilityId: number; startsAt: Date; endsAt: Date; purpose?: string | null };
+export type SpecialDateLike = { facilityId: number; startsOn: Date; endsOn: Date; reason?: string | null };
+
+export type SlotStatus = "available" | "mostly" | "limited" | "unavailable";
+export type HistoricalHatchLevel = "none" | "light" | "strong";
 export type DayStatus = "available" | "partial" | "unavailable";
 
 export type ScheduleWeekSpace = {
@@ -88,11 +99,11 @@ function specialDateBlocks(interval: Interval, specialDates: SpecialDateLike[]):
 }
 
 function statusFromCounts(availableWeeks: number, totalWeeks: number): SlotStatus {
-  const blocked = totalWeeks - availableWeeks;
-  if (blocked === 0) return "available";
-  if (blocked >= totalWeeks) return "unavailable";
-  if (blocked === 1) return "rare";
-  return "frequent";
+  const availability = availableWeeks / totalWeeks;
+  if (availability > 0.8) return "available";
+  if (availability >= 0.6) return "mostly";
+  if (availability >= 0.4) return "limited";
+  return "unavailable";
 }
 
 function bookingMatchesSpace(booking: BookingLike, space: SpaceLike): boolean {
@@ -116,12 +127,21 @@ export function hasHistoricalAvailableSpace(slot: Pick<ScheduleSlot, "weeks">): 
   return slot.weeks.some((week) => week.spaces.some((space) => space.available && space.historicallyBookedYears.length > 0));
 }
 
-export function hasHistoricalAvailableSpaceBookedBothYears(slot: Pick<ScheduleSlot, "weeks">): boolean {
+export function hasLastYearHistoricalAvailableSpace(slot: Pick<ScheduleSlot, "weeks">): boolean {
   return slot.weeks.some((week) => week.spaces.some((space) => (
     space.available
     && space.historicallyBookedYears.includes(1)
-    && space.historicallyBookedYears.includes(2)
   )));
+}
+
+export function historicalHatchLevelForSlot(slot: Pick<ScheduleSlot, "weeks" | "totalWeeks">): HistoricalHatchLevel {
+  const lastYearBookedWeeks = slot.weeks.filter((week) => (
+    week.spaces.some((space) => space.available && space.historicallyBookedYears.includes(1))
+  )).length;
+  const lastYearBookedRatio = lastYearBookedWeeks / slot.totalWeeks;
+  if (lastYearBookedRatio > 0.6) return "strong";
+  if (lastYearBookedRatio >= 0.4) return "light";
+  return "none";
 }
 
 export function computeNearbySchedule(input: NearbyScheduleInput): DaySchedule[] {

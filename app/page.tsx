@@ -6,16 +6,13 @@ import { format, parseISO } from "date-fns";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CategoryModal, CATEGORY_STORAGE_KEY, FEE_CATEGORIES, FeeBadge, SCHEDULE_ORIENT_STORAGE_KEY, SettingsButton, type EffectiveScheduleOrient, type ScheduleOrient } from "@/app/components/fee-ui";
+import { PermitWindowModal } from "@/app/components/permit-window-modal";
 import { PhotoGalleryModal, type GallerySpace } from "@/app/components/photo-gallery-modal";
-import type { AvailabilitySearchResponse, NearbySchool, NearbySearchResponse } from "@/lib/api-contracts";
-import { pickTimeOfUse, type FeeCategory } from "@/lib/fees";
-import { hasHistoricalAvailableSpace, hasHistoricalAvailableSpaceBookedBothYears } from "@/lib/nearby-slots";
+import type { NearbySchool, NearbySearchResponse } from "@/lib/api-contracts";
+import type { FeeCategory } from "@/lib/fees";
+import { historicalHatchLevelForSlot } from "@/lib/nearby-slots";
 
 type SpaceType = { id: number | string; name: string };
-
-const weekdays = [
-  [1, "Mon"], [2, "Tue"], [3, "Wed"], [4, "Thu"], [5, "Fri"], [6, "Sat"], [7, "Sun"],
-] as const;
 
 type AvailabilityStatus = "available" | "partial" | "unavailable";
 
@@ -25,12 +22,30 @@ const statusLabel: Record<AvailabilityStatus, string> = {
   unavailable: "No weeks",
 };
 
-const slotStatusLabel: Record<"available" | "rare" | "frequent" | "unavailable", string> = {
-  available: "Free every week",
-  rare: "Booked one week",
-  frequent: "Booked some weeks",
-  unavailable: "Booked every week",
+const slotStatusLabel: Record<"available" | "mostly" | "limited" | "unavailable", string> = {
+  available: "Almost always available",
+  mostly: "Mostly available",
+  limited: "Mostly not available",
+  unavailable: "Almost never available",
 };
+
+type TooltipWeek = NearbySchool["schedule"][number]["slots"][number]["weeks"][number];
+
+function historicalYearsForWeek(week: TooltipWeek): number[] {
+  return [...new Set(week.spaces.flatMap((space) => space.historicallyBookedYears))]
+    .sort((a, b) => a - b);
+}
+
+function historicalWeekLabel(years: number[]): string {
+  if (years.includes(1) && years.includes(2)) return "Historically booked in both prior years";
+  if (years.includes(1)) return "Historically booked last year";
+  if (years.includes(2)) return "Historically booked two years ago";
+  return "";
+}
+
+function lastYearStatusForWeek(week: TooltipWeek): "Free" | "Booked" {
+  return historicalYearsForWeek(week).includes(1) ? "Booked" : "Free";
+}
 
 function getSchoolStatus(school: NearbySchool): AvailabilityStatus {
   const availableWeeks = school.schedule.reduce((sum, slot) => sum + slot.availableWeeks, 0);
@@ -142,26 +157,18 @@ function clearNearbyConnectors(map: MapLibreMap) {
 }
 
 export default function Home() {
-  const today = new Date().toISOString().slice(0, 10);
-  const upcomingSept1 = (() => {
+  const upcomingSept15 = (() => {
     const now = new Date();
     const year = now.getMonth() < 8 ? now.getFullYear() : now.getFullYear() + 1;
-    return `${year}-09-01`;
+    return `${year}-09-15`;
   })();
-  const [activeTab, setActiveTab] = useState<"search" | "nearby">("nearby");
   const [form, setForm] = useState({
-    startDate: today,
-    endDate: today,
-    startTime: "18:00",
-    endTime: "20:00",
-    weekdays: [1, 2, 3, 4, 5],
-    spaceTypeId: "18",
-    matchMode: "partial" as "all" | "partial",
+    spaceTypeId: "17",
   });
   const [nearbyForm, setNearbyForm] = useState({
-    startDate: upcomingSept1,
+    startDate: upcomingSept15,
     startTime: "18:00",
-    endTime: "20:00",
+    endTime: "22:00",
     weeks: 8,
     limit: 5,
     point: { lat: 43.6532, lng: -79.3832 },
@@ -172,9 +179,23 @@ export default function Home() {
   const [gallerySpace, setGallerySpace] = useState<GallerySpace | null>(null);
   const [feeCategory, setFeeCategory] = useState<FeeCategory>("B");
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
+  const [permitWindowOpen, setPermitWindowOpen] = useState(false);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [scheduleOrient, setScheduleOrient] = useState<ScheduleOrient>("auto");
   const [autoEffectiveOrient, setAutoEffectiveOrient] = useState<EffectiveScheduleOrient>("times");
+  const [pinnedSlotKey, setPinnedSlotKey] = useState<string | null>(null);
+  const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!pinnedSlotKey) return;
+    const handler = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".slot-cell, .slot-tooltip")) return;
+      setPinnedSlotKey(null);
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [pinnedSlotKey]);
 
   useEffect(() => {
     window.setTimeout(() => {
@@ -253,7 +274,7 @@ export default function Home() {
   });
 
   useEffect(() => {
-    if (activeTab !== "nearby" || !mapContainerRef.current || mapRef.current) return;
+    if (!mapContainerRef.current || mapRef.current) return;
     let disposed = false;
     void import("maplibre-gl").then(({ default: maplibregl }) => {
       if (disposed || !mapContainerRef.current) return;
@@ -297,35 +318,11 @@ export default function Home() {
       markerRef.current = marker;
     });
     return () => { disposed = true; };
-  }, [activeTab, nearbyForm.point.lat, nearbyForm.point.lng]);
-
-  useEffect(() => {
-    if (activeTab === "nearby") requestAnimationFrame(() => mapRef.current?.resize());
-  }, [activeTab]);
+  }, [nearbyForm.point.lat, nearbyForm.point.lng]);
 
   useEffect(() => {
     markerRef.current?.setLngLat([nearbyForm.point.lng, nearbyForm.point.lat]);
   }, [nearbyForm.point.lat, nearbyForm.point.lng]);
-
-  const search = useMutation({
-    mutationFn: async () => {
-      const res = await fetch("/api/search", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          startDate: form.startDate,
-          endDate: form.endDate,
-          startTime: form.startTime,
-          endTime: form.endTime,
-          weekdays: form.weekdays,
-          spaceTypeIds: form.spaceTypeId ? [Number(form.spaceTypeId)] : undefined,
-          matchMode: form.matchMode,
-        }),
-      });
-      if (!res.ok) throw new Error("Search failed. Make sure the database has been synced.");
-      return (await res.json()) as Promise<AvailabilitySearchResponse>;
-    },
-  });
 
   const nearby = useMutation({
     mutationFn: async () => {
@@ -424,11 +421,11 @@ export default function Home() {
 
         const marker = new maplibregl.Marker({ element: markerElement, anchor: "center" })
           .setLngLat([lng, lat])
-          .setPopup(new maplibregl.Popup({ offset: 18 }).setDOMContent(popupElement))
+          .setPopup(new maplibregl.Popup({ offset: 18, anchor: "bottom" }).setDOMContent(popupElement))
           .addTo(map);
         markerElement.addEventListener("click", (event) => {
           event.stopImmediatePropagation();
-          map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13.5), duration: 500 });
+          map.easeTo({ center: [lng, lat], zoom: Math.max(map.getZoom(), 13.5), offset: [0, 110], duration: 500 });
           marker.togglePopup();
         }, { capture: true });
         schoolMarkersRef.current.push(marker);
@@ -457,21 +454,8 @@ export default function Home() {
     const lat = school.facility.latitude;
     const lng = school.facility.longitude;
     if (!mapRef.current || lat == null || lng == null) return;
-    mapRef.current.easeTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 13.5), duration: 500 });
+    mapRef.current.easeTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 13.5), offset: [0, 110], duration: 500 });
     schoolMarkerByIdRef.current.get(school.facility.id)?.togglePopup();
-  }
-
-  const grouped = useMemo(() => {
-    const rows = search.data?.results ?? [];
-    return rows.reduce<Record<string, AvailabilitySearchResponse["results"][number][]>>((acc, row) => {
-      acc[row.facility.name] ??= [];
-      acc[row.facility.name].push(row);
-      return acc;
-    }, {});
-  }, [search.data]);
-
-  function toggleWeekday(day: number) {
-    setForm((f) => ({ ...f, weekdays: f.weekdays.includes(day) ? f.weekdays.filter((d) => d !== day) : [...f.weekdays, day].sort() }));
   }
 
   function selectSpaceType(id: string) {
@@ -549,243 +533,223 @@ export default function Home() {
         <p>Search cached TDSB facility, room, booking, and closure data to identify spaces that appear available for a recurring time window.</p>
       </section>
 
-      <nav className="tabs" aria-label="Search mode">
-        <button type="button" className={activeTab === "nearby" ? "active" : ""} onClick={() => setActiveTab("nearby")}>Map nearby</button>
-        <button type="button" className={activeTab === "search" ? "active" : ""} onClick={() => setActiveTab("search")}>Schedule search</button>
-      </nav>
-
-      {activeTab === "search" ? (
-        <>
-          <section className="card search">
-            <div className="search-header">
-              <div>
-                <h2>Search filters</h2>
-                <p>Choose the room type, dates, and recurring time window you care about.</p>
+      <section className="card search map-search">
+        <div className="search-header">
+          <div>
+            <h2>Map nearby</h2>
+            <p>Click the map, then find the closest schools with your desired room type and weekly availability.</p>
+          </div>
+          <div className="search-header-actions">
+            {hasCurrentNearbyResults ? (
+              <button type="button" className="secondary" onClick={resetNearbySearch}>New search</button>
+            ) : (
+              <button className="secondary" onClick={() => {
+                setLastNearbySearchKey(nearbySearchKey);
+                nearby.mutate();
+              }} disabled={nearby.isPending}>{nearby.isPending ? "Checking..." : "Find closest schools"}</button>
+            )}
+          </div>
+        </div>
+        <div className="map-layout">
+          <div className="map-panel">
+            <div ref={mapContainerRef} className="map-canvas" />
+            <div className="map-overlay map-overlay-tl">
+              <div className="selected-point floating">
+                <strong>{nearbyForm.point.lat.toFixed(5)}, {nearbyForm.point.lng.toFixed(5)}</strong>
+                <span>Selected point</span>
               </div>
-              <button className="secondary" onClick={() => search.mutate()} disabled={search.isPending}>{search.isPending ? "Searching..." : "Search spaces"}</button>
             </div>
-
-            <div className="grid">
+            {hasCurrentNearbyResults && (nearby.data?.schools.length ?? 0) > 0 ? (
+              <div className="map-overlay map-overlay-bl">
+                <div className="legend floating" aria-label="Availability legend">
+                  <span><i className="dot available" />All weeks</span>
+                  <span><i className="dot partial" />Some weeks</span>
+                  <span><i className="dot unavailable" />No weeks</span>
+                </div>
+              </div>
+            ) : null}
+          </div>
+          <div className={`map-controls${filtersOpen ? " is-open" : ""}`}>
+            <button
+              type="button"
+              className="map-controls-handle"
+              onClick={() => setFiltersOpen((v) => !v)}
+              aria-expanded={filtersOpen}
+              aria-controls="map-controls-fields"
+            >
+              <span className="map-controls-handle-grab" aria-hidden />
+              <span className="map-controls-handle-label">Filters</span>
+              <span className="map-controls-handle-chevron" aria-hidden>{filtersOpen ? "▾" : "▴"}</span>
+            </button>
+            <div id="map-controls-fields" className="grid compact-grid map-controls-fields">
               {spaceTypePicker}
-              <label>Start date<input type="date" value={form.startDate} onChange={(e) => setForm({ ...form, startDate: e.target.value })} /></label>
-              <label>End date<input type="date" value={form.endDate} onChange={(e) => setForm({ ...form, endDate: e.target.value })} /></label>
-
-              <div className="field field-wide">
-                <span className="field-label">Availability</span>
-                <div className="segment" role="radiogroup" aria-label="Availability match mode">
-                  <button type="button" className={form.matchMode === "partial" ? "active" : ""} onClick={() => setForm({ ...form, matchMode: "partial" })}>Partial matches</button>
-                  <button type="button" className={form.matchMode === "all" ? "active" : ""} onClick={() => setForm({ ...form, matchMode: "all" })}>Every selected date</button>
-                </div>
-              </div>
-
-              <label>Start time<input type="time" value={form.startTime} onChange={(e) => setForm({ ...form, startTime: e.target.value })} /></label>
-              <label>End time<input type="time" value={form.endTime} onChange={(e) => setForm({ ...form, endTime: e.target.value })} /></label>
-              <div className="field field-wide">
-                <span className="field-label">Weekdays</span>
-                <div className="checks" aria-label="Weekdays">
-                  {weekdays.map(([day, label]) => <label key={day}><input type="checkbox" checked={form.weekdays.includes(day)} onChange={() => toggleWeekday(day)} />{label}</label>)}
-                </div>
-              </div>
+              <label>
+                <span className="field-label">
+                  From week of
+                  <button
+                    type="button"
+                    className="field-help"
+                    aria-label="About the school-year permit window"
+                    onClick={() => setPermitWindowOpen(true)}
+                  >?</button>
+                </span>
+                <input type="date" value={nearbyForm.startDate} onChange={(e) => setNearbyForm({ ...nearbyForm, startDate: e.target.value })} />
+              </label>
+              <label>Look N weeks ahead<input type="number" min="1" max="26" value={nearbyForm.weeks} onChange={(e) => setNearbyForm({ ...nearbyForm, weeks: Number(e.target.value) })} /></label>
+              <label>Closest N schools<input type="number" min="1" max="20" value={nearbyForm.limit} onChange={(e) => setNearbyForm({ ...nearbyForm, limit: Number(e.target.value) })} /></label>
+              <label>Start time<input type="time" value={nearbyForm.startTime} onChange={(e) => setNearbyForm({ ...nearbyForm, startTime: e.target.value })} /></label>
+              <label>End time<input type="time" value={nearbyForm.endTime} onChange={(e) => setNearbyForm({ ...nearbyForm, endTime: e.target.value })} /></label>
             </div>
-          </section>
+          </div>
+        </div>
+      </section>
 
-          <section className="results">
-            {search.error ? <div className="card empty">{search.error.message}</div> : null}
-            {search.data && search.data.results.length === 0 ? <div className="card empty">No matching spaces found. Try partial matches or a broader date range.</div> : null}
-            {Object.entries(grouped).map(([facility, rows]) => (
-              <article className="card result" key={facility}>
-                <div>
-                  <h3>{facility}</h3>
-                  <div className="meta">{rows[0].facility.address} {rows[0].facility.city} {rows[0].facility.postalCode}</div>
-                  {rows.map((row) => (
-                    <p key={`${row.facility.name}-${row.space.name}`}>
-                      <strong>{row.space.name}</strong>{" "}
-                      <span className="meta">{row.space.type}</span>{" "}
-                      <FeeBadge spaceTypeId={row.space.spaceTypeId} category={feeCategory} timeOfUse={pickTimeOfUse(form.weekdays)} />
-                    </p>
+      <section className="results">
+        {nearby.error ? <div className="card empty">{nearby.error.message}</div> : null}
+        {hasCurrentNearbyResults && nearby.data?.schools.length === 0 ? <div className="card empty">No schools with that public room type and coordinates were found.</div> : null}
+        {hasCurrentNearbyResults ? nearby.data?.schools.map((school) => (
+          <article className="card nearby-result" key={school.facility.id} onMouseEnter={() => {
+            schoolMarkerByIdRef.current.get(school.facility.id)?.getElement().classList.add("is-highlighted");
+          }} onMouseLeave={() => {
+            schoolMarkerByIdRef.current.get(school.facility.id)?.getElement().classList.remove("is-highlighted");
+          }}>
+            <div className="nearby-heading">
+              <div className="nearby-heading-text">
+                <h3>{school.facility.name}</h3>
+                <div className="meta">{school.facility.address} {school.facility.city} {school.facility.postalCode}</div>
+                <ul className="space-list" aria-label="Spaces">
+                  {school.spaces.slice(0, 4).map((space) => (
+                    <li className="space-chip" key={space.id}>
+                      <span className="space-chip-name">{space.name}</span>
+                      <FeeBadge spaceTypeId={space.spaceTypeId} category={feeCategory} />
+                      <button
+                        type="button"
+                        className="photos-icon-btn space-chip-photos"
+                        onClick={() => setGallerySpace({ schoolName: school.facility.name, space: { id: space.id, name: space.name } })}
+                        aria-label={`View photos of ${space.name}`}
+                        title="View photos"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                          <rect x="3" y="3" width="18" height="18" rx="2" />
+                          <circle cx="8.5" cy="8.5" r="1.5" />
+                          <polyline points="21 15 16 10 5 21" />
+                        </svg>
+                      </button>
+                    </li>
+                  ))}
+                  {school.spaces.length > 4 ? (
+                    <li className="space-chip space-chip-more">+{school.spaces.length - 4} more</li>
+                  ) : null}
+                </ul>
+              </div>
+              <button type="button" className={`distance-pill ${getSchoolStatus(school)}`} onClick={() => focusSchoolOnMap(school)}>{school.distanceKm.toFixed(1)} km</button>
+            </div>
+            {(() => {
+              const slotTemplate = school.schedule[0]?.slots ?? [];
+              if (slotTemplate.length === 0) return <div className="schedule-grid empty">No time slots in the requested window.</div>;
+              return (
+                <div className="schedule-grid" role="grid" aria-label={`${school.facility.name} weekly schedule`}>
+                  <div className="schedule-header" role="row">
+                    <span className="schedule-corner" aria-hidden />
+                    {school.schedule.map((day, dayIdx) => (
+                      <span key={day.day} className="schedule-day-label" role="columnheader" style={{ "--day-idx": dayIdx } as React.CSSProperties}>{day.label}</span>
+                    ))}
+                  </div>
+                  {slotTemplate.map((templateSlot, idx) => (
+                    <div className="schedule-row" key={templateSlot.start} role="row">
+                      <span className="schedule-time-label" role="rowheader" style={{ "--slot-idx": idx } as React.CSSProperties}>{templateSlot.start}</span>
+                      {school.schedule.map((day, dayIdx) => {
+                        const slot = day.slots[idx];
+                        const historicalHatchLevel = historicalHatchLevelForSlot(slot);
+                        const slotKey = `${school.facility.id}:${dayIdx}:${idx}`;
+                        const isOpen = pinnedSlotKey === slotKey || hoveredSlotKey === slotKey;
+                        const weekRows = slot.weeks.map((wk) => ({
+                          week: wk,
+                          historicalYears: historicalYearsForWeek(wk),
+                        }));
+                        return (
+                          <Tooltip.Root
+                            key={day.day}
+                            open={isOpen}
+                            onOpenChange={(open) => {
+                              setHoveredSlotKey((prev) => {
+                                if (open) return slotKey;
+                                return prev === slotKey ? null : prev;
+                              });
+                            }}
+                          >
+                            <Tooltip.Trigger asChild>
+                              <span
+                                role="gridcell"
+                                tabIndex={0}
+                                className={`slot-cell ${slot.status}${historicalHatchLevel !== "none" ? ` slot-cell--historical slot-cell--historical-${historicalHatchLevel}` : ""}`}
+                                style={{ "--day-idx": dayIdx, "--slot-idx": idx } as React.CSSProperties}
+                                aria-label={`${day.label} ${slot.start} to ${slot.end}: ${slot.availableWeeks} of ${slot.totalWeeks} weeks free`}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setPinnedSlotKey((prev) => (prev === slotKey ? null : slotKey));
+                                }}
+                              />
+                            </Tooltip.Trigger>
+                            <Tooltip.Portal>
+                              <Tooltip.Content className="slot-tooltip slot-tooltip--history" side="top" sideOffset={6}>
+                                <div className="slot-tooltip-row">
+                                  <strong>{day.label} · {slot.start}–{slot.end}</strong>
+                                </div>
+                                <div className={`slot-tooltip-row slot-tooltip-status ${slot.status}`}>
+                                  {slotStatusLabel[slot.status]}
+                                </div>
+                                <div className="slot-tooltip-row slot-tooltip-meta">
+                                  {slot.availableWeeks} of {slot.totalWeeks} weeks free
+                                </div>
+                                <ul className="slot-tooltip-weeks has-history">
+                                  <li className="slot-tooltip-week-header" aria-hidden>
+                                    <span />
+                                    <span>Date</span>
+                                    <span>This yr</span>
+                                    <span>Last yr</span>
+                                  </li>
+                                  {weekRows.map(({ week: wk, historicalYears }) => {
+                                    const historicalLabel = historicalWeekLabel(historicalYears);
+                                    const lastYearStatus = lastYearStatusForWeek(wk);
+                                    return (
+                                      <li key={wk.date} className={`${wk.available ? "free" : "blocked"}${historicalYears.length > 0 ? " historical" : ""}`}>
+                                        <span className="slot-tooltip-week-dot" aria-hidden />
+                                        <span className="slot-tooltip-week-date">{format(parseISO(wk.date), "MMM d")}</span>
+                                        <span className="slot-tooltip-week-status">{wk.available ? "Free" : "Booked"}</span>
+                                        <span
+                                          className={`slot-tooltip-last-year ${lastYearStatus === "Free" ? "free" : "booked"}`}
+                                          aria-label={historicalYears.length > 0 ? historicalLabel : undefined}
+                                          title={historicalYears.length > 0 ? historicalLabel : undefined}
+                                        >
+                                          {lastYearStatus}
+                                        </span>
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                                <Tooltip.Arrow className="slot-tooltip-arrow" />
+                              </Tooltip.Content>
+                            </Tooltip.Portal>
+                          </Tooltip.Root>
+                        );
+                      })}
+                    </div>
                   ))}
                 </div>
-                <div className="availability-stat">
-                  <span className="stat-number">{rows.reduce((sum, row) => sum + row.availableOccurrences, 0)}</span>
-                  <span className="stat-label">open<br />occurrences</span>
-                </div>
-              </article>
-            ))}
-          </section>
-        </>
-      ) : (
-        <>
-          <section className="card search map-search">
-            <div className="search-header">
-              <div>
-                <h2>Map nearby</h2>
-                <p>Click the map, then find the five closest schools with this room type and weekly availability pattern.</p>
-              </div>
-              <div className="search-header-actions">
-                {hasCurrentNearbyResults ? (
-                  <button type="button" className="secondary" onClick={resetNearbySearch}>New search</button>
-                ) : (
-                  <button className="secondary" onClick={() => {
-                    setLastNearbySearchKey(nearbySearchKey);
-                    nearby.mutate();
-                  }} disabled={nearby.isPending}>{nearby.isPending ? "Checking..." : "Find closest schools"}</button>
-                )}
-              </div>
-            </div>
-            <div className="map-layout">
-              <div className="map-panel">
-                <div ref={mapContainerRef} className="map-canvas" />
-                <div className="map-overlay map-overlay-tl">
-                  <div className="selected-point floating">
-                    <strong>{nearbyForm.point.lat.toFixed(5)}, {nearbyForm.point.lng.toFixed(5)}</strong>
-                    <span>Selected point</span>
-                  </div>
-                </div>
-                {hasCurrentNearbyResults && (nearby.data?.schools.length ?? 0) > 0 ? (
-                  <div className="map-overlay map-overlay-bl">
-                    <div className="legend floating" aria-label="Availability legend">
-                      <span><i className="dot available" />All weeks</span>
-                      <span><i className="dot partial" />Some weeks</span>
-                      <span><i className="dot unavailable" />No weeks</span>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-              <div className={`map-controls${filtersOpen ? " is-open" : ""}`}>
-                <button
-                  type="button"
-                  className="map-controls-handle"
-                  onClick={() => setFiltersOpen((v) => !v)}
-                  aria-expanded={filtersOpen}
-                  aria-controls="map-controls-fields"
-                >
-                  <span className="map-controls-handle-grab" aria-hidden />
-                  <span className="map-controls-handle-label">Filters</span>
-                  <span className="map-controls-handle-chevron" aria-hidden>{filtersOpen ? "▾" : "▴"}</span>
-                </button>
-                <div id="map-controls-fields" className="grid compact-grid map-controls-fields">
-                  {spaceTypePicker}
-                  <label>From week of<input type="date" value={nearbyForm.startDate} onChange={(e) => setNearbyForm({ ...nearbyForm, startDate: e.target.value })} /></label>
-                  <label>Look N weeks ahead<input type="number" min="1" max="26" value={nearbyForm.weeks} onChange={(e) => setNearbyForm({ ...nearbyForm, weeks: Number(e.target.value) })} /></label>
-                  <label>Closest N schools<input type="number" min="1" max="20" value={nearbyForm.limit} onChange={(e) => setNearbyForm({ ...nearbyForm, limit: Number(e.target.value) })} /></label>
-                  <label>Start time<input type="time" value={nearbyForm.startTime} onChange={(e) => setNearbyForm({ ...nearbyForm, startTime: e.target.value })} /></label>
-                  <label>End time<input type="time" value={nearbyForm.endTime} onChange={(e) => setNearbyForm({ ...nearbyForm, endTime: e.target.value })} /></label>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="results">
-            {nearby.error ? <div className="card empty">{nearby.error.message}</div> : null}
-            {hasCurrentNearbyResults && nearby.data?.schools.length === 0 ? <div className="card empty">No schools with that public room type and coordinates were found.</div> : null}
-            {hasCurrentNearbyResults ? nearby.data?.schools.map((school) => (
-              <article className="card nearby-result" key={school.facility.id} onMouseEnter={() => {
-                schoolMarkerByIdRef.current.get(school.facility.id)?.getElement().classList.add("is-highlighted");
-              }} onMouseLeave={() => {
-                schoolMarkerByIdRef.current.get(school.facility.id)?.getElement().classList.remove("is-highlighted");
-              }}>
-                <div className="nearby-heading">
-                  <div className="nearby-heading-text">
-                    <h3>{school.facility.name}</h3>
-                    <div className="meta">{school.facility.address} {school.facility.city} {school.facility.postalCode}</div>
-                    <ul className="space-list" aria-label="Spaces">
-                      {school.spaces.slice(0, 4).map((space) => (
-                        <li className="space-chip" key={space.id}>
-                          <span className="space-chip-name">{space.name}</span>
-                          <FeeBadge spaceTypeId={space.spaceTypeId} category={feeCategory} />
-                          <button
-                            type="button"
-                            className="photos-icon-btn space-chip-photos"
-                            onClick={() => setGallerySpace({ schoolName: school.facility.name, space: { id: space.id, name: space.name } })}
-                            aria-label={`View photos of ${space.name}`}
-                            title="View photos"
-                          >
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                              <rect x="3" y="3" width="18" height="18" rx="2" />
-                              <circle cx="8.5" cy="8.5" r="1.5" />
-                              <polyline points="21 15 16 10 5 21" />
-                            </svg>
-                          </button>
-                        </li>
-                      ))}
-                      {school.spaces.length > 4 ? (
-                        <li className="space-chip space-chip-more">+{school.spaces.length - 4} more</li>
-                      ) : null}
-                    </ul>
-                  </div>
-                  <button type="button" className={`distance-pill ${getSchoolStatus(school)}`} onClick={() => focusSchoolOnMap(school)}>{school.distanceKm.toFixed(1)} km</button>
-                </div>
-                {(() => {
-                  const slotTemplate = school.schedule[0]?.slots ?? [];
-                  if (slotTemplate.length === 0) return <div className="schedule-grid empty">No time slots in the requested window.</div>;
-                  return (
-                    <div className="schedule-grid" role="grid" aria-label={`${school.facility.name} weekly schedule`}>
-                      <div className="schedule-header" role="row">
-                        <span className="schedule-corner" aria-hidden />
-                        {school.schedule.map((day, dayIdx) => (
-                          <span key={day.day} className="schedule-day-label" role="columnheader" style={{ "--day-idx": dayIdx } as React.CSSProperties}>{day.label}</span>
-                        ))}
-                      </div>
-                      {slotTemplate.map((templateSlot, idx) => (
-                        <div className="schedule-row" key={templateSlot.start} role="row">
-                          <span className="schedule-time-label" role="rowheader" style={{ "--slot-idx": idx } as React.CSSProperties}>{templateSlot.start}</span>
-                          {school.schedule.map((day, dayIdx) => {
-                            const slot = day.slots[idx];
-                            const isHistorical = hasHistoricalAvailableSpace(slot);
-                            const isHistoricalBoth = hasHistoricalAvailableSpaceBookedBothYears(slot);
-                            return (
-                              <Tooltip.Root key={day.day}>
-                                <Tooltip.Trigger asChild>
-                                  <span
-                                    role="gridcell"
-                                    tabIndex={0}
-                                    className={`slot-cell ${slot.status}${isHistorical ? " slot-cell--historical" : ""}${isHistoricalBoth ? " slot-cell--historical-both" : ""}`}
-                                    style={{ "--day-idx": dayIdx, "--slot-idx": idx } as React.CSSProperties}
-                                    aria-label={`${day.label} ${slot.start} to ${slot.end}: ${slot.availableWeeks} of ${slot.totalWeeks} weeks free`}
-                                  />
-                                </Tooltip.Trigger>
-                                <Tooltip.Portal>
-                                  <Tooltip.Content className="slot-tooltip" side="top" sideOffset={6}>
-                                    <div className="slot-tooltip-row">
-                                      <strong>{day.label} · {slot.start}–{slot.end}</strong>
-                                    </div>
-                                    <div className={`slot-tooltip-row slot-tooltip-status ${slot.status}`}>
-                                      {slotStatusLabel[slot.status]}
-                                    </div>
-                                    <div className="slot-tooltip-row slot-tooltip-meta">
-                                      {slot.availableWeeks} of {slot.totalWeeks} weeks free
-                                    </div>
-                                    <ul className="slot-tooltip-weeks">
-                                      {slot.weeks.map((wk) => (
-                                        <li key={wk.date} className={wk.available ? "free" : "blocked"}>
-                                          <span className="slot-tooltip-week-dot" aria-hidden />
-                                          <span className="slot-tooltip-week-date">{format(parseISO(wk.date), "MMM d")}</span>
-                                          <span className="slot-tooltip-week-status">{wk.available ? "Free" : "Booked"}</span>
-                                        </li>
-                                      ))}
-                                    </ul>
-                                    <Tooltip.Arrow className="slot-tooltip-arrow" />
-                                  </Tooltip.Content>
-                                </Tooltip.Portal>
-                              </Tooltip.Root>
-                            );
-                          })}
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
-              </article>
-            )) : null}
-          </section>
-        </>
-      )}
+              );
+            })()}
+          </article>
+        )) : null}
+      </section>
 
       {categoryModalOpen ? (
         <CategoryModal feeCategory={feeCategory} onClose={() => setCategoryModalOpen(false)} onSelect={selectFeeCategory} effectiveScheduleOrient={effectiveScheduleOrient} onChangeScheduleOrient={selectScheduleOrient} />
       ) : null}
 
       {gallerySpace ? <PhotoGalleryModal gallerySpace={gallerySpace} onClose={() => setGallerySpace(null)} /> : null}
+
+      {permitWindowOpen ? <PermitWindowModal onClose={() => setPermitWindowOpen(false)} /> : null}
     </main>
   );
 }

@@ -1,5 +1,5 @@
 import { Prisma } from "@prisma/client";
-import { addDays, format } from "date-fns";
+import { addDays, format, isBefore } from "date-fns";
 import { prisma } from "./prisma";
 import { decodeHtmlEntities } from "./html-entities";
 import { TdsbClient, TdsbFacility, TdsbSpace, TdsbSpaceDetails } from "./tdsb-client";
@@ -56,6 +56,12 @@ function chunks<T>(arr: T[], size: number): T[][] {
   return out;
 }
 
+function positiveIntEnv(name: string, fallback: number, max = Number.MAX_SAFE_INTEGER): number {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isInteger(value) || value <= 0) return fallback;
+  return Math.min(value, max);
+}
+
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>): Promise<R[]> {
   let cursor = 0;
   const out: R[] = new Array(items.length);
@@ -68,22 +74,53 @@ async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: nu
   return out;
 }
 
+async function upsertRows<T>(label: string, rows: T[], limit: number, fn: (row: T) => Promise<void>): Promise<void> {
+  if (rows.length === 0) {
+    console.log(`no ${label} to write`);
+    return;
+  }
+
+  const progressEvery = Number(process.env.DB_WRITE_PROGRESS_EVERY ?? 500);
+  let completed = 0;
+  console.log(`writing ${rows.length} ${label} to database`);
+  await mapLimit(rows, limit, async (row) => {
+    await fn(row);
+    completed += 1;
+    if (completed === rows.length || (progressEvery > 0 && completed % progressEvery === 0)) {
+      console.log(`wrote ${completed}/${rows.length} ${label}`);
+    }
+  });
+}
+
+function omitId<T extends { id: number }>(row: T): Omit<T, "id"> {
+  const rest: Partial<T> = { ...row };
+  delete rest.id;
+  return rest as Omit<T, "id">;
+}
+
+function defaultHistoricalBookingStartDate(today = new Date()): string {
+  const currentYear = today.getFullYear();
+  const currentSchoolYearStart = new Date(currentYear, 8, 1);
+  const startYear = isBefore(today, currentSchoolYearStart) ? currentYear - 3 : currentYear - 2;
+  return format(new Date(startYear, 8, 1), "yyyy-MM-dd");
+}
+
 function facilityRow(f: TdsbFacility, pictureFilenames: string[] = []) {
   return {
     id: f.id,
     name: f.name,
-    address: decodeHtmlEntities(f.address),
-    suite: decodeHtmlEntities(f.suite),
-    city: decodeHtmlEntities(f.city),
-    province: f.province,
-    postalCode: f.postal_code,
-    phone: f.phone,
-    regionId: f.region_id,
-    region: f.region,
-    latitude: f.latitude,
-    longitude: f.longitude,
-    hoursJson: parseJsonish(f.hours),
-    pictureFilenames: pictureFilenames.length ? toJson(pictureFilenames) : undefined,
+    address: decodeHtmlEntities(f.address) ?? null,
+    suite: decodeHtmlEntities(f.suite) ?? null,
+    city: decodeHtmlEntities(f.city) ?? null,
+    province: f.province ?? null,
+    postalCode: f.postal_code ?? null,
+    phone: f.phone ?? null,
+    regionId: f.region_id ?? null,
+    region: f.region ?? null,
+    latitude: f.latitude ?? null,
+    longitude: f.longitude ?? null,
+    hoursJson: parseJsonish(f.hours) ?? Prisma.DbNull,
+    pictureFilenames: pictureFilenames.length ? toJson(pictureFilenames) : Prisma.DbNull,
     rawJson: toJson(f),
     lastSyncedAt: new Date(),
   };
@@ -95,18 +132,94 @@ function spaceRow(s: TdsbSpace, details?: TdsbSpaceDetails) {
     facilityId: Number(s.school_id),
     spaceTypeId: s.space_type_id ? Number(s.space_type_id) : null,
     name: s.name,
-    type: s.type,
+    type: s.type ?? null,
     isAvailable: s.is_available === "1",
     isAvailableReg: s.is_available_reg === "1",
     hideFromPublic: s.hide_from_public === "1",
-    areaSqm: details?.areaSqm,
-    areaSqft: details?.areaSqft,
-    hoursJson: parseJsonish(s.hours),
-    detailAttributes: details && Object.keys(details.attributes).length ? toJson(details.attributes) : undefined,
-    pictureFilenames: details?.pictureFilenames.length ? toJson(details.pictureFilenames) : undefined,
+    areaSqm: details?.areaSqm ?? null,
+    areaSqft: details?.areaSqft ?? null,
+    hoursJson: parseJsonish(s.hours) ?? Prisma.DbNull,
+    detailAttributes: details && Object.keys(details.attributes).length ? toJson(details.attributes) : Prisma.DbNull,
+    pictureFilenames: details?.pictureFilenames.length ? toJson(details.pictureFilenames) : Prisma.DbNull,
     rawJson: toJson(s),
     lastSyncedAt: new Date(),
   };
+}
+
+type SpaceRow = ReturnType<typeof spaceRow>;
+
+function jsonSql(value: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput): Prisma.Sql {
+  return value === Prisma.DbNull ? Prisma.sql`NULL::jsonb` : Prisma.sql`${JSON.stringify(value)}::jsonb`;
+}
+
+async function upsertSpaceRows(rows: SpaceRow[]): Promise<void> {
+  if (rows.length === 0) {
+    console.log("no spaces to write");
+    return;
+  }
+
+  const chunkSize = positiveIntEnv("DB_SPACE_UPSERT_CHUNK_SIZE", 1000, 3000);
+  let completed = 0;
+  console.log(`writing ${rows.length} spaces to database in chunks of ${chunkSize}`);
+
+  for (const group of chunks(rows, chunkSize)) {
+    const values = group.map((row) => Prisma.sql`(
+      ${row.id},
+      ${row.facilityId},
+      ${row.spaceTypeId},
+      ${row.name},
+      ${row.type},
+      ${row.isAvailable},
+      ${row.isAvailableReg},
+      ${row.hideFromPublic},
+      ${row.areaSqm},
+      ${row.areaSqft},
+      ${jsonSql(row.hoursJson)},
+      ${jsonSql(row.detailAttributes)},
+      ${jsonSql(row.pictureFilenames)},
+      ${jsonSql(row.rawJson)},
+      ${row.lastSyncedAt}
+    )`);
+
+    await prisma.$executeRaw`
+      INSERT INTO "Space" (
+        "id",
+        "facilityId",
+        "spaceTypeId",
+        "name",
+        "type",
+        "isAvailable",
+        "isAvailableReg",
+        "hideFromPublic",
+        "areaSqm",
+        "areaSqft",
+        "hoursJson",
+        "detailAttributes",
+        "pictureFilenames",
+        "rawJson",
+        "lastSyncedAt"
+      )
+      VALUES ${Prisma.join(values)}
+      ON CONFLICT ("id") DO UPDATE SET
+        "facilityId" = EXCLUDED."facilityId",
+        "spaceTypeId" = EXCLUDED."spaceTypeId",
+        "name" = EXCLUDED."name",
+        "type" = EXCLUDED."type",
+        "isAvailable" = EXCLUDED."isAvailable",
+        "isAvailableReg" = EXCLUDED."isAvailableReg",
+        "hideFromPublic" = EXCLUDED."hideFromPublic",
+        "areaSqm" = EXCLUDED."areaSqm",
+        "areaSqft" = EXCLUDED."areaSqft",
+        "hoursJson" = EXCLUDED."hoursJson",
+        "detailAttributes" = EXCLUDED."detailAttributes",
+        "pictureFilenames" = EXCLUDED."pictureFilenames",
+        "rawJson" = EXCLUDED."rawJson",
+        "lastSyncedAt" = EXCLUDED."lastSyncedAt"
+    `;
+
+    completed += group.length;
+    console.log(`wrote ${completed}/${rows.length} spaces`);
+  }
 }
 
 export async function syncInventory(permitTypeId = 3) {
@@ -155,12 +268,60 @@ export async function syncInventory(permitTypeId = 3) {
     if (!typeMap.has(id)) typeMap.set(id, { id, name: space.type ?? `Space type ${id}`, requestByQty: false, rawJson: toJson({ id, name: space.type, inferred_from_space: true }), lastSyncedAt: new Date() });
   }
 
-  await prisma.$transaction([prisma.booking.deleteMany(), prisma.specialDate.deleteMany(), prisma.space.deleteMany(), prisma.facility.deleteMany(), prisma.spaceType.deleteMany()]);
-  for (const group of chunks([...typeMap.values()], 500)) await prisma.spaceType.createMany({ data: group });
-  for (const group of chunks(facilities.map((f) => facilityRow(f, picturesByFacilityId.get(f.id))), 500)) await prisma.facility.createMany({ data: group });
-  for (const group of chunks(spaces.map((space) => spaceRow(space, detailsBySpaceId.get(Number(space.id)))), 500)) await prisma.space.createMany({ data: group });
+  const writeConcurrency = Number(process.env.DB_WRITE_CONCURRENCY ?? 8);
+  const spaceTypeRows = [...typeMap.values()];
+  const facilityRows = facilities.map((f) => facilityRow(f, picturesByFacilityId.get(f.id)));
+  const spaceRows = spaces.map((space) => spaceRow(space, detailsBySpaceId.get(Number(space.id))));
+
+  await upsertRows("space types", spaceTypeRows, writeConcurrency, async (row) => {
+    await prisma.spaceType.upsert({
+      where: { id: row.id },
+      create: row,
+      update: omitId(row),
+    });
+  });
+  await upsertRows("facilities", facilityRows, writeConcurrency, async (row) => {
+    await prisma.facility.upsert({
+      where: { id: row.id },
+      create: row,
+      update: omitId(row),
+    });
+  });
+  await upsertSpaceRows(spaceRows);
 
   return { spaceTypes: typeMap.size, facilities: facilities.length, spaces: spaces.length, spaceDetails: detailsBySpaceId.size };
+}
+
+async function facilitiesForBookingSync(facilityIds?: number[]) {
+  const excludedFacilityIds = new Set(bookingSyncExcludedFacilityIds());
+  const allFacilities = facilityIds?.length ? facilityIds.map((id) => ({ id })) : await prisma.facility.findMany({ select: { id: true }, orderBy: { id: "asc" } });
+  const facilities = allFacilities.filter((facility) => !excludedFacilityIds.has(facility.id));
+  const skippedFacilities = allFacilities.length - facilities.length;
+  if (skippedFacilities > 0) console.log(`skipping ${skippedFacilities} booking sync facilities: ${[...excludedFacilityIds].sort((a, b) => a - b).join(", ")}`);
+  return { facilities, skippedFacilities };
+}
+
+async function spaceMapForFacilities(facilityIds: number[]) {
+  const spaceRows = await prisma.space.findMany({
+    where: { facilityId: { in: facilityIds } },
+    select: { id: true, facilityId: true, name: true },
+    orderBy: { id: "asc" },
+  });
+  const spaceMap = new Map<number, Map<string, number>>();
+  for (const row of spaceRows) {
+    let names = spaceMap.get(row.facilityId);
+    if (!names) { names = new Map(); spaceMap.set(row.facilityId, names); }
+    if (names.has(row.name)) console.warn(`duplicate space name "${row.name}" at facility ${row.facilityId}; keeping space id ${names.get(row.name)}, ignoring ${row.id}`);
+    else names.set(row.name, row.id);
+  }
+  return spaceMap;
+}
+
+function logBookingSpaceResolution(bookings: Array<{ spaceIds: number[] }>) {
+  const singleSpace = bookings.filter((b) => b.spaceIds.length === 1).length;
+  const multiSpace = bookings.filter((b) => b.spaceIds.length > 1).length;
+  const empty = bookings.length - singleSpace - multiSpace;
+  console.log(`resolved spaceIds: ${singleSpace} single + ${multiSpace} multi-space = ${singleSpace + multiSpace}/${bookings.length} bookings (${empty} empty → facility-level fallback)`);
 }
 
 export async function syncBookings(startDate?: string, endDate?: string, facilityIds?: number[]) {
@@ -168,11 +329,7 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
   const start = startDate ?? format(new Date(), "yyyy-MM-dd");
   const end = endDate ?? format(addDays(new Date(), Number(process.env.BOOKING_SYNC_DAYS ?? 180)), "yyyy-MM-dd");
   const concurrency = Number(process.env.SYNC_CONCURRENCY ?? 12);
-  const excludedFacilityIds = new Set(bookingSyncExcludedFacilityIds());
-  const allFacilities = facilityIds?.length ? facilityIds.map((id) => ({ id })) : await prisma.facility.findMany({ select: { id: true }, orderBy: { id: "asc" } });
-  const facilities = allFacilities.filter((facility) => !excludedFacilityIds.has(facility.id));
-  const skippedFacilities = allFacilities.length - facilities.length;
-  if (skippedFacilities > 0) console.log(`skipping ${skippedFacilities} booking sync facilities: ${[...excludedFacilityIds].sort((a, b) => a - b).join(", ")}`);
+  const { facilities, skippedFacilities } = await facilitiesForBookingSync(facilityIds);
 
   const results = await mapLimit(facilities, concurrency, async (facility, index) => {
     const result = { facilityId: facility.id, bookings: [] as Awaited<ReturnType<TdsbClient["bookings"]>>, specialDates: [] as Awaited<ReturnType<TdsbClient["specialDates"]>>, failed: false };
@@ -184,18 +341,7 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     return result;
   });
 
-  const spaceRows = await prisma.space.findMany({
-    where: { facilityId: { in: facilities.map((f) => f.id) } },
-    select: { id: true, facilityId: true, name: true },
-    orderBy: { id: "asc" },
-  });
-  const spaceMap = new Map<number, Map<string, number>>();
-  for (const row of spaceRows) {
-    let names = spaceMap.get(row.facilityId);
-    if (!names) { names = new Map(); spaceMap.set(row.facilityId, names); }
-    if (names.has(row.name)) console.warn(`duplicate space name "${row.name}" at facility ${row.facilityId}; keeping space id ${names.get(row.name)}, ignoring ${row.id}`);
-    else names.set(row.name, row.id);
-  }
+  const spaceMap = await spaceMapForFacilities(facilities.map((f) => f.id));
 
   const bookings = results.flatMap((r) => r.bookings.map((b) => ({
     id: String(b.id),
@@ -209,10 +355,7 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     rawJson: toJson(b),
     lastSyncedAt: new Date(),
   })));
-  const singleSpace = bookings.filter((b) => b.spaceIds.length === 1).length;
-  const multiSpace = bookings.filter((b) => b.spaceIds.length > 1).length;
-  const empty = bookings.length - singleSpace - multiSpace;
-  console.log(`resolved spaceIds: ${singleSpace} single + ${multiSpace} multi-space = ${singleSpace + multiSpace}/${bookings.length} bookings (${empty} empty → facility-level fallback)`);
+  logBookingSpaceResolution(bookings);
   const specialDates = results.flatMap((r) => r.specialDates.map((s) => ({
     id: `${r.facilityId}:${s.id}`,
     facilityId: r.facilityId,
@@ -223,9 +366,47 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     lastSyncedAt: new Date(),
   })));
 
-  await prisma.$transaction([prisma.booking.deleteMany(), prisma.specialDate.deleteMany()]);
+  await prisma.$transaction([
+    prisma.booking.deleteMany({ where: { startsAt: { gte: parseLocalDateTime(`${start} 00:00:00`) } } }),
+    prisma.specialDate.deleteMany(),
+  ]);
   for (const group of chunks(bookings, 1000)) await prisma.booking.createMany({ data: group, skipDuplicates: true });
   for (const group of chunks(specialDates, 1000)) await prisma.specialDate.createMany({ data: group, skipDuplicates: true });
 
   return { facilities: facilities.length, skippedFacilities, bookings: bookings.length, specialDates: specialDates.length, failures: results.filter((r) => r.failed).length, startDate: start, endDate: end };
+}
+
+export async function syncHistoricalBookings(startDate?: string, endDate?: string, facilityIds?: number[]) {
+  const client = new TdsbClient();
+  const start = startDate ?? defaultHistoricalBookingStartDate();
+  const end = endDate ?? format(new Date(), "yyyy-MM-dd");
+  const concurrency = Number(process.env.SYNC_CONCURRENCY ?? 12);
+  const { facilities, skippedFacilities } = await facilitiesForBookingSync(facilityIds);
+
+  const results = await mapLimit(facilities, concurrency, async (facility, index) => {
+    const result = { facilityId: facility.id, bookings: [] as Awaited<ReturnType<TdsbClient["bookings"]>>, failed: false };
+    try { result.bookings = await client.bookings(facility.id, `${start} 00:00:00`, `${end} 23:59:59`, 0); }
+    catch (error) { result.failed = true; console.warn(`failed historical bookings for facility ${facility.id}:`, error instanceof Error ? error.message : error); }
+    if ((index + 1) % 50 === 0) console.log(`fetched historical bookings for ${index + 1}/${facilities.length} facilities`);
+    return result;
+  });
+
+  const spaceMap = await spaceMapForFacilities(facilities.map((f) => f.id));
+  const bookings = results.flatMap((r) => r.bookings.map((b) => ({
+    id: String(b.id),
+    facilityId: r.facilityId,
+    spaceIds: resolveBookingSpaceIds(r.facilityId, b.spaces, spaceMap),
+    startsAt: parseLocalDateTime(b.start),
+    endsAt: parseLocalDateTime(b.end),
+    statusId: b.status_id == null ? null : Number(b.status_id),
+    purpose: b.purpose,
+    spacesLabel: b.spaces,
+    rawJson: toJson(b),
+    lastSyncedAt: new Date(),
+  })));
+  logBookingSpaceResolution(bookings);
+
+  for (const group of chunks(bookings, 1000)) await prisma.booking.createMany({ data: group, skipDuplicates: true });
+
+  return { facilities: facilities.length, skippedFacilities, bookings: bookings.length, failures: results.filter((r) => r.failed).length, startDate: start, endDate: end };
 }

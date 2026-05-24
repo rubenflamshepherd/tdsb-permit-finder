@@ -12,6 +12,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "sync:inventory": "tsx scripts/sync-inventory.ts",
+    "sync:historical": "tsx scripts/sync-historical-bookings.ts",
     "sync:bookings": "tsx scripts/sync-bookings.ts",
     "test": "vitest run"
   },

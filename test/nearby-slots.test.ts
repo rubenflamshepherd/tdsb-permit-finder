@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SpaceLike } from "../lib/availability";
-import { computeNearbySchedule, enumerateSlots } from "../lib/nearby-slots";
+import { computeNearbySchedule, enumerateSlots, hasHistoricalAvailableSpace } from "../lib/nearby-slots";
 
 const facility = { id: 1, name: "Test School", hoursJson: null };
 const baseSpace: SpaceLike = {
@@ -18,6 +18,21 @@ const baseInput = {
   bookings: [],
   specialDates: [],
 };
+
+const historicalInput = {
+  ...baseInput,
+  startDate: "2026-05-25",
+  endTime: "18:30",
+  weeks: 1,
+};
+
+function mondaySlot(input: Parameters<typeof computeNearbySchedule>[0], start = "18:00") {
+  return computeNearbySchedule(input).find((d) => d.day === 1)!.slots.find((s) => s.start === start)!;
+}
+
+function firstWeekSpaces(input: Parameters<typeof computeNearbySchedule>[0], start = "18:00") {
+  return mondaySlot(input, start).weeks[0].spaces;
+}
 
 describe("enumerateSlots", () => {
   it("splits a window into 30-min slots", () => {
@@ -97,10 +112,10 @@ describe("computeNearbySchedule", () => {
     });
     const slot = schedule.find((d) => d.day === 1)!.slots.find((s) => s.start === "19:00")!;
     expect(slot.weeks).toEqual([
-      { date: "2026-06-01", available: true },
-      { date: "2026-06-08", available: true },
-      { date: "2026-06-15", available: false },
-      { date: "2026-06-22", available: true },
+      { date: "2026-06-01", available: true, spaces: [{ spaceId: 10, available: true, historicallyBookedYears: [] }] },
+      { date: "2026-06-08", available: true, spaces: [{ spaceId: 10, available: true, historicallyBookedYears: [] }] },
+      { date: "2026-06-15", available: false, spaces: [{ spaceId: 10, available: false, historicallyBookedYears: [] }] },
+      { date: "2026-06-22", available: true, spaces: [{ spaceId: 10, available: true, historicallyBookedYears: [] }] },
     ]);
   });
 
@@ -150,5 +165,88 @@ describe("computeNearbySchedule", () => {
     const monday = schedule.find((d) => d.day === 1)!;
     expect(monday.slots.every((s) => s.availableWeeks === 1)).toBe(true);
     expect(monday.slots.every((s) => s.status === "rare")).toBe(true);
+  });
+
+  it("records no historical years when there are no historical bookings", () => {
+    expect(firstWeekSpaces(historicalInput)).toEqual([
+      { spaceId: 10, available: true, historicallyBookedYears: [] },
+    ]);
+  });
+
+  it("records a booking exactly 52 weeks before as booked 1 year ago", () => {
+    expect(firstWeekSpaces({
+      ...historicalInput,
+      historicalBookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") }],
+    })[0].historicallyBookedYears).toEqual([1]);
+  });
+
+  it("records bookings 52 and 104 weeks before as booked in both prior years", () => {
+    expect(firstWeekSpaces({
+      ...historicalInput,
+      historicalBookings: [
+        { facilityId: 1, spaceIds: [10], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") },
+        { facilityId: 1, spaceIds: [10], startsAt: new Date("2024-05-27T18:00:00"), endsAt: new Date("2024-05-27T18:30:00") },
+      ],
+    })[0].historicallyBookedYears).toEqual([1, 2]);
+  });
+
+  it("does not match the calendar-anniversary date when the weekday differs", () => {
+    expect(firstWeekSpaces({
+      ...historicalInput,
+      historicalBookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2025-05-25T18:00:00"), endsAt: new Date("2025-05-25T18:30:00") }],
+    })[0].historicallyBookedYears).toEqual([]);
+  });
+
+  it("does not record history from a sibling space", () => {
+    expect(firstWeekSpaces({
+      ...historicalInput,
+      historicalBookings: [{ facilityId: 1, spaceIds: [11], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") }],
+    })[0].historicallyBookedYears).toEqual([]);
+  });
+
+  it("falls back to facility-level historical matching when spaceIds is empty", () => {
+    expect(firstWeekSpaces({
+      ...historicalInput,
+      historicalBookings: [{ facilityId: 1, spaceIds: [], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") }],
+    })[0].historicallyBookedYears).toEqual([1]);
+  });
+
+  it("records multi-space historical bookings for every listed space", () => {
+    const otherSpace: SpaceLike = { ...baseSpace, id: 11, name: "Pool" };
+    expect(firstWeekSpaces({
+      ...historicalInput,
+      spaces: [baseSpace, otherSpace],
+      historicalBookings: [{ facilityId: 1, spaceIds: [10, 11], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") }],
+    })).toEqual([
+      { spaceId: 10, available: true, historicallyBookedYears: [1] },
+      { spaceId: 11, available: true, historicallyBookedYears: [1] },
+    ]);
+  });
+
+  it("does not record history from a different facility", () => {
+    expect(firstWeekSpaces({
+      ...historicalInput,
+      historicalBookings: [{ facilityId: 2, spaceIds: [], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") }],
+    })[0].historicallyBookedYears).toEqual([]);
+  });
+
+  it("does not mark the cell historical when only an unavailable sibling space has history", () => {
+    const otherSpace: SpaceLike = { ...baseSpace, id: 11, name: "Pool" };
+    const slot = mondaySlot({
+      ...historicalInput,
+      spaces: [baseSpace, otherSpace],
+      bookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2026-05-25T18:00:00"), endsAt: new Date("2026-05-25T18:30:00") }],
+      historicalBookings: [{ facilityId: 1, spaceIds: [10], startsAt: new Date("2025-05-26T18:00:00"), endsAt: new Date("2025-05-26T18:30:00") }],
+    });
+
+    expect(slot.weeks[0]).toEqual({
+      date: "2026-05-25",
+      available: true,
+      spaces: [
+        { spaceId: 10, available: false, historicallyBookedYears: [1] },
+        { spaceId: 11, available: true, historicallyBookedYears: [] },
+      ],
+    });
+    expect(hasHistoricalAvailableSpace(slot)).toBe(false);
   });
 });

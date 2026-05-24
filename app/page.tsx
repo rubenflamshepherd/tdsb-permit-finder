@@ -9,6 +9,7 @@ import { CategoryModal, CATEGORY_STORAGE_KEY, FEE_CATEGORIES, FeeBadge, SCHEDULE
 import { PhotoGalleryModal, type GallerySpace } from "@/app/components/photo-gallery-modal";
 import type { AvailabilitySearchResponse, NearbySchool, NearbySearchResponse } from "@/lib/api-contracts";
 import { pickTimeOfUse, type FeeCategory } from "@/lib/fees";
+import { hasHistoricalAvailableSpace, hasHistoricalAvailableSpaceBookedBothYears } from "@/lib/nearby-slots";
 
 type SpaceType = { id: number | string; name: string };
 
@@ -730,13 +731,15 @@ export default function Home() {
                           <span className="schedule-time-label" role="rowheader" style={{ "--slot-idx": idx } as React.CSSProperties}>{templateSlot.start}</span>
                           {school.schedule.map((day, dayIdx) => {
                             const slot = day.slots[idx];
+                            const isHistorical = hasHistoricalAvailableSpace(slot);
+                            const isHistoricalBoth = hasHistoricalAvailableSpaceBookedBothYears(slot);
                             return (
                               <Tooltip.Root key={day.day}>
                                 <Tooltip.Trigger asChild>
                                   <span
                                     role="gridcell"
                                     tabIndex={0}
-                                    className={`slot-cell ${slot.status}`}
+                                    className={`slot-cell ${slot.status}${isHistorical ? " slot-cell--historical" : ""}${isHistoricalBoth ? " slot-cell--historical-both" : ""}`}
                                     style={{ "--day-idx": dayIdx, "--slot-idx": idx } as React.CSSProperties}
                                     aria-label={`${day.label} ${slot.start} to ${slot.end}: ${slot.availableWeeks} of ${slot.totalWeeks} weeks free`}
                                   />

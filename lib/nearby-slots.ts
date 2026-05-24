@@ -1,4 +1,4 @@
-import { addDays, addWeeks, format, parseISO, startOfWeek } from "date-fns";
+import { addDays, addWeeks, format, parseISO, startOfWeek, subWeeks } from "date-fns";
 import type { BookingLike, SpaceLike, SpecialDateLike } from "./availability";
 import { withinHours } from "./hours";
 import { dateOnly, Interval, overlaps, parseDateWithTime } from "./time";
@@ -6,13 +6,25 @@ import { dateOnly, Interval, overlaps, parseDateWithTime } from "./time";
 export type SlotStatus = "available" | "rare" | "frequent" | "unavailable";
 export type DayStatus = "available" | "partial" | "unavailable";
 
+export type ScheduleWeekSpace = {
+  spaceId: number;
+  available: boolean;
+  historicallyBookedYears: number[];
+};
+
+export type ScheduleWeek = {
+  date: string;
+  available: boolean;
+  spaces: ScheduleWeekSpace[];
+};
+
 export type ScheduleSlot = {
   start: string;
   end: string;
   availableWeeks: number;
   totalWeeks: number;
   status: SlotStatus;
-  weeks: Array<{ date: string; available: boolean }>;
+  weeks: ScheduleWeek[];
 };
 
 export type DaySchedule = {
@@ -33,6 +45,7 @@ export type NearbyScheduleInput = {
   spaces: SpaceLike[];
   facilityHours: unknown;
   bookings: BookingLike[];
+  historicalBookings?: BookingLike[];
   specialDates: SpecialDateLike[];
 };
 
@@ -82,12 +95,42 @@ function statusFromCounts(availableWeeks: number, totalWeeks: number): SlotStatu
   return "frequent";
 }
 
+function bookingMatchesSpace(booking: BookingLike, space: SpaceLike): boolean {
+  return booking.spaceIds.length > 0 ? booking.spaceIds.includes(space.id) : booking.facilityId === space.facilityId;
+}
+
+function historicallyBookedYears(space: SpaceLike, interval: Interval, historicalBookings: BookingLike[]): number[] {
+  return [1, 2].filter((yearsBack) => {
+    const shiftedInterval = {
+      start: subWeeks(interval.start, 52 * yearsBack),
+      end: subWeeks(interval.end, 52 * yearsBack),
+    };
+    return historicalBookings.some((booking) => (
+      bookingMatchesSpace(booking, space)
+      && overlaps(shiftedInterval, { start: booking.startsAt, end: booking.endsAt })
+    ));
+  });
+}
+
+export function hasHistoricalAvailableSpace(slot: Pick<ScheduleSlot, "weeks">): boolean {
+  return slot.weeks.some((week) => week.spaces.some((space) => space.available && space.historicallyBookedYears.length > 0));
+}
+
+export function hasHistoricalAvailableSpaceBookedBothYears(slot: Pick<ScheduleSlot, "weeks">): boolean {
+  return slot.weeks.some((week) => week.spaces.some((space) => (
+    space.available
+    && space.historicallyBookedYears.includes(1)
+    && space.historicallyBookedYears.includes(2)
+  )));
+}
+
 export function computeNearbySchedule(input: NearbyScheduleInput): DaySchedule[] {
   const weekStart = startOfWeek(parseISO(input.startDate), { weekStartsOn: 1 });
   const slotTemplate = enumerateSlots(input.startTime, input.endTime);
+  const historicalBookings = input.historicalBookings ?? [];
 
   return WEEKDAYS.map(({ day, label }) => {
-    const slotWeeks: Array<Array<{ date: string; available: boolean }>> = slotTemplate.map(() => []);
+    const slotWeeks: ScheduleSlot["weeks"][] = slotTemplate.map(() => []);
     const dates: DaySchedule["dates"] = [];
 
     for (let week = 0; week < input.weeks; week += 1) {
@@ -96,13 +139,22 @@ export function computeNearbySchedule(input: NearbyScheduleInput): DaySchedule[]
 
       slotTemplate.forEach((slot, idx) => {
         const interval: Interval = { start: parseDateWithTime(date, slot.start), end: parseDateWithTime(date, slot.end) };
-        const free = input.spaces.some((space) => {
-          if (specialDateBlocks(interval, input.specialDates)) return false;
-          if (!withinHours(interval, space.hoursJson, input.facilityHours)) return false;
-          const bookingsForSpace = input.bookings.filter((b) => (b.spaceIds.length > 0 ? b.spaceIds.includes(space.id) : b.facilityId === space.facilityId));
-          return !bookingsForSpace.some((b) => overlaps(interval, { start: b.startsAt, end: b.endsAt }));
+        const spaces = input.spaces.map((space) => {
+          let available = true;
+          if (specialDateBlocks(interval, input.specialDates)) available = false;
+          if (available && !withinHours(interval, space.hoursJson, input.facilityHours)) available = false;
+          if (available) {
+            const bookingsForSpace = input.bookings.filter((booking) => bookingMatchesSpace(booking, space));
+            available = !bookingsForSpace.some((booking) => overlaps(interval, { start: booking.startsAt, end: booking.endsAt }));
+          }
+          return {
+            spaceId: space.id,
+            available,
+            historicallyBookedYears: historicallyBookedYears(space, interval, historicalBookings),
+          };
         });
-        slotWeeks[idx].push({ date, available: free });
+        const free = spaces.some((space) => space.available);
+        slotWeeks[idx].push({ date, available: free, spaces });
         if (!free) dayFullyFree = false;
       });
 

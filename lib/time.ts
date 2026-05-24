@@ -1,5 +1,5 @@
-import { format, isBefore } from "date-fns";
-import { fromZonedTime } from "date-fns-tz";
+import { isBefore } from "date-fns";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 
 export type Interval = { start: Date; end: Date };
 
@@ -18,5 +18,5 @@ export function overlaps(a: Interval, b: Interval): boolean {
 }
 
 export function dateOnly(value: Date): string {
-  return format(value, "yyyy-MM-dd");
+  return formatInTimeZone(value, TDSB_TIME_ZONE, "yyyy-MM-dd");
 }

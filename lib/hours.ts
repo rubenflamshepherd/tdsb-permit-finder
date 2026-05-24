@@ -1,5 +1,7 @@
-import { format } from "date-fns";
-import { Interval, parseDateWithTime } from "./time";
+import { formatInTimeZone } from "date-fns-tz";
+import { dateOnly, Interval, parseDateWithTime } from "./time";
+
+const TDSB_TIME_ZONE = "America/Toronto";
 
 type DayHours = { start?: string; end?: string };
 type HoursMap = Record<string, DayHours>;
@@ -30,11 +32,10 @@ function normalizeTime(value: string): string | null {
 export function withinHours(interval: Interval, spaceHours: unknown, facilityHours: unknown): boolean {
   const hours = parseHours(spaceHours) ?? parseHours(facilityHours);
   if (!hours) return true;
-  const jsDay = interval.start.getDay();
-  const isoDay = jsDay === 0 ? 7 : jsDay;
-  const dayHours = hours[String(isoDay)];
+  const isoDay = formatInTimeZone(interval.start, TDSB_TIME_ZONE, "i");
+  const dayHours = hours[isoDay];
   if (!dayHours?.start || !dayHours?.end) return false;
-  const date = format(interval.start, "yyyy-MM-dd");
+  const date = dateOnly(interval.start);
   const start = normalizeTime(dayHours.start);
   const end = normalizeTime(dayHours.end);
   if (!start || !end) return true;

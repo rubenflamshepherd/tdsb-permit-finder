@@ -136,7 +136,7 @@ export function hasLastYearHistoricalAvailableSpace(slot: Pick<ScheduleSlot, "we
 
 export function historicalHatchLevelForSlot(slot: Pick<ScheduleSlot, "weeks" | "totalWeeks">): HistoricalHatchLevel {
   const lastYearBookedWeeks = slot.weeks.filter((week) => (
-    week.spaces.some((space) => space.available && space.historicallyBookedYears.includes(1))
+    week.spaces.some((space) => space.historicallyBookedYears.includes(1))
   )).length;
   const lastYearBookedRatio = lastYearBookedWeeks / slot.totalWeeks;
   if (lastYearBookedRatio > 0.6) return "strong";

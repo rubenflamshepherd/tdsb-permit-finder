@@ -118,3 +118,15 @@ The search UI reads from the local database. The `/api/space-types` and `/api/fa
 - `npm run sync:inventory` fetches facility, space type, and space inventory.
 - `npm run sync:bookings` fetches bookings and excluded dates for the next `BOOKING_SYNC_DAYS` days.
 - `START_DATE=2026-06-01 END_DATE=2026-08-31 npm run sync:bookings` syncs an explicit window.
+- By default, booking sync refreshes successful facilities and leaves failed facilities' existing cache untouched. Set `STRICT_BOOKING_SYNC=1` to exit nonzero after partial failures.
+
+### Analytics
+
+GA4 is loaded via `@next/third-parties/google` when `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set (set it in `.env.local` and Vercel project env). Pageviews fire automatically on route changes; custom events are emitted via `trackEvent` in `lib/analytics.ts`.
+
+Currently tracked events:
+
+- `search_initiated` — user runs a nearby search (`{ space_type_id }`)
+- `space_type_selected` — user changes the space type filter (`{ space_type_id }`)
+- `photo_gallery_opened` — user opens a space's photo gallery (`{ space_id, space_name, school_name }`)
+- `permit_window_opened` — user opens the permit submission window modal

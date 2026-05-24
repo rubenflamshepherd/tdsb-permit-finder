@@ -293,4 +293,22 @@ describe("computeNearbySchedule", () => {
     expect(historicalHatchLevelForSlot(slotWithHistory([2, 9, 16]))).toBe("light");
     expect(historicalHatchLevelForSlot(slotWithHistory([2, 9, 16, 23]))).toBe("strong");
   });
+
+  it("counts last-year-booked weeks even when the space is booked again this year", () => {
+    const slot = mondaySlot({
+      ...baseInput,
+      weeks: 5,
+      bookings: [
+        { facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-01T19:00:00"), endsAt: new Date("2026-06-01T19:30:00") },
+        { facilityId: 1, spaceIds: [10], startsAt: new Date("2026-06-08T19:00:00"), endsAt: new Date("2026-06-08T19:30:00") },
+      ],
+      historicalBookings: [2, 9, 16, 23].map((d) => ({
+        facilityId: 1,
+        spaceIds: [10],
+        startsAt: new Date(`2025-06-${String(d).padStart(2, "0")}T19:00:00`),
+        endsAt: new Date(`2025-06-${String(d).padStart(2, "0")}T19:30:00`),
+      })),
+    }, "19:00");
+    expect(historicalHatchLevelForSlot(slot)).toBe("strong");
+  });
 });

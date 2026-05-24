@@ -2,12 +2,20 @@ import { format, parseISO, startOfWeek, addDays, addWeeks, subWeeks } from "date
 import { NextResponse } from "next/server";
 import { nearbySearchRequestSchema } from "@/lib/api-contracts";
 import { distanceKm } from "@/lib/distance";
+import { decodeHtmlEntities } from "@/lib/html-entities";
 import { computeNearbySchedule } from "@/lib/nearby-slots";
 import { facilityPictureUrls } from "@/lib/pictures";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
-  const parsed = nearbySearchRequestSchema.safeParse(await request.json());
+  let body: unknown;
+  try {
+    body = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = nearbySearchRequestSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const search = parsed.data;
   const origin = { lat: search.lat, lng: search.lng };
@@ -91,7 +99,7 @@ export async function POST(request: Request) {
     return {
       facility: {
         id: facility.id,
-        name: facility.name,
+        name: decodeHtmlEntities(facility.name),
         address: facility.address,
         city: facility.city,
         postalCode: facility.postalCode,
@@ -99,7 +107,14 @@ export async function POST(request: Request) {
         longitude: facility.longitude,
         pictureUrls: facilityPictureUrls(facility.pictureFilenames),
       },
-      spaces: spaces.map((space) => ({ id: space.id, name: space.name, type: space.type, spaceTypeId: space.spaceTypeId })),
+      spaces: spaces.map((space) => ({
+        id: space.id,
+        name: decodeHtmlEntities(space.name),
+        type: decodeHtmlEntities(space.type),
+        spaceTypeId: space.spaceTypeId,
+        areaSqft: space.areaSqft,
+        areaSqm: space.areaSqm,
+      })),
       distanceKm: km,
       schedule,
     };

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_BOOKING_SYNC_EXCLUDED_FACILITY_IDS, parseFacilityIdList, resolveBookingSpaceIds } from "../lib/sync";
+import {
+  DEFAULT_BOOKING_SYNC_EXCLUDED_FACILITY_IDS,
+  bookingSyncReplacementWhere,
+  bookingSyncSuccessfulFacilityIds,
+  parseFacilityIdList,
+  resolveBookingSpaces,
+  resolveBookingSpaceIds,
+} from "../lib/sync";
 
 describe("parseFacilityIdList", () => {
   it("parses comma-separated positive integer ids", () => {
@@ -41,18 +48,31 @@ describe("resolveBookingSpaceIds", () => {
     expect(resolveBookingSpaceIds(15, "Gym A, Room 101, Cafetorium (Large)", spaceMap)).toEqual([8422, 8423, 8421]);
   });
 
-  it("drops unresolved pieces and returns the resolved subset", () => {
-    expect(resolveBookingSpaceIds(15, "Room 101, Portable 1, Room 102", spaceMap)).toEqual([8423, 8424]);
+  it("resolves multi-space labels when a space name contains a comma", () => {
+    expect(resolveBookingSpaceIds(15, "Studio, Black Box, Room 101", spaceMap)).toEqual([8425, 8423]);
+  });
+
+  it("falls back to facility-level blocking when any piece of a multi-space label is unresolved", () => {
+    expect(resolveBookingSpaceIds(15, "Room 101, Portable 1, Room 102", spaceMap)).toEqual([]);
+    expect(resolveBookingSpaces(15, "Room 101, Portable 1, Room 102", spaceMap)).toEqual({
+      spaceIds: [],
+      unresolvedLabels: ["Portable 1"],
+    });
   });
 
   it("returns an empty array when no piece resolves", () => {
     expect(resolveBookingSpaceIds(15, "Portable 1, Portable 2", spaceMap)).toEqual([]);
+    expect(resolveBookingSpaces(15, "Portable 1, Portable 2", spaceMap)).toEqual({
+      spaceIds: [],
+      unresolvedLabels: ["Portable 1", "Portable 2"],
+    });
   });
 
   it("returns an empty array when the label is null, undefined, or empty", () => {
     expect(resolveBookingSpaceIds(15, null, spaceMap)).toEqual([]);
     expect(resolveBookingSpaceIds(15, undefined, spaceMap)).toEqual([]);
     expect(resolveBookingSpaceIds(15, "", spaceMap)).toEqual([]);
+    expect(resolveBookingSpaces(15, null, spaceMap)).toEqual({ spaceIds: [], unresolvedLabels: [] });
   });
 
   it("scopes lookups to the booking's facility (same name in a different facility is not used)", () => {
@@ -63,9 +83,38 @@ describe("resolveBookingSpaceIds", () => {
 
   it("returns an empty array when the facility has no entry in the map", () => {
     expect(resolveBookingSpaceIds(999, "Gym A", spaceMap)).toEqual([]);
+    expect(resolveBookingSpaces(999, "Gym A", spaceMap)).toEqual({
+      spaceIds: [],
+      unresolvedLabels: ["Gym A"],
+    });
   });
 
   it("deduplicates repeated entries in the label", () => {
     expect(resolveBookingSpaceIds(15, "Room 101, Room 101", spaceMap)).toEqual([8423]);
+  });
+});
+
+describe("booking sync replacement planning", () => {
+  it("refreshes only facilities whose fetches fully succeeded", () => {
+    expect(bookingSyncSuccessfulFacilityIds([
+      { facilityId: 101, failed: false },
+      { facilityId: 102, failed: true },
+      { facilityId: 103, failed: false },
+    ])).toEqual([101, 103]);
+  });
+
+  it("scopes destructive replacement to successful facilities and the requested window", () => {
+    expect(bookingSyncReplacementWhere([101, 103], "2026-06-01", "2026-06-30")).toEqual({
+      booking: {
+        facilityId: { in: [101, 103] },
+        startsAt: { lte: new Date("2026-06-30T23:59:59") },
+        endsAt: { gte: new Date("2026-06-01T00:00:00") },
+      },
+      specialDate: {
+        facilityId: { in: [101, 103] },
+        startsOn: { lte: new Date("2026-06-30T23:59:59") },
+        endsOn: { gte: new Date("2026-06-01T00:00:00") },
+      },
+    });
   });
 });

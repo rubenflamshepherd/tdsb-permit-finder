@@ -18,23 +18,136 @@ function bookingSyncExcludedFacilityIds(): number[] {
   return parseFacilityIdList(process.env.BOOKING_SYNC_EXCLUDED_FACILITY_IDS ?? DEFAULT_BOOKING_SYNC_EXCLUDED_FACILITY_IDS.join(","));
 }
 
+export type BookingSpaceResolution = {
+  spaceIds: number[];
+  unresolvedLabels: string[];
+};
+
+function dedupeIds(ids: number[]): number[] {
+  const seen = new Set<number>();
+  const deduped: number[] = [];
+  for (const id of ids) {
+    if (!seen.has(id)) {
+      seen.add(id);
+      deduped.push(id);
+    }
+  }
+  return deduped;
+}
+
+const sortedSpaceNameEntriesCache = new WeakMap<Map<string, number>, Array<[string, number]>>();
+
+function sortedSpaceNameEntries(names: Map<string, number>): Array<[string, number]> {
+  const cached = sortedSpaceNameEntriesCache.get(names);
+  if (cached) return cached;
+  const entries = [...names.entries()].sort(([a], [b]) => b.length - a.length);
+  sortedSpaceNameEntriesCache.set(names, entries);
+  return entries;
+}
+
+function resolveKnownSpaceLabelSequence(spacesLabel: string, names: Map<string, number>): number[] | null {
+  const entries = sortedSpaceNameEntries(names);
+  const memo = new Map<number, number[] | null>();
+
+  function resolveFrom(position: number): number[] | null {
+    if (position === spacesLabel.length) return [];
+    if (memo.has(position)) return memo.get(position) ?? null;
+
+    for (const [name, id] of entries) {
+      if (!spacesLabel.startsWith(name, position)) continue;
+
+      const nextPosition = position + name.length;
+      if (nextPosition === spacesLabel.length) {
+        const resolved = [id];
+        memo.set(position, resolved);
+        return resolved;
+      }
+      if (!spacesLabel.startsWith(", ", nextPosition)) continue;
+
+      const rest = resolveFrom(nextPosition + 2);
+      if (rest) {
+        const resolved = [id, ...rest];
+        memo.set(position, resolved);
+        return resolved;
+      }
+    }
+
+    memo.set(position, null);
+    return null;
+  }
+
+  return resolveFrom(0);
+}
+
+function unresolvedBookingSpaceLabels(spacesLabel: string, names: Map<string, number>): string[] {
+  const parts = spacesLabel.split(", ");
+  const unresolved: string[] = [];
+  let index = 0;
+
+  while (index < parts.length) {
+    let matchedPartCount = 0;
+    for (const name of names.keys()) {
+      const nameParts = name.split(", ");
+      if (nameParts.length <= matchedPartCount) continue;
+      if (parts.slice(index, index + nameParts.length).join(", ") === name) {
+        matchedPartCount = nameParts.length;
+      }
+    }
+
+    if (matchedPartCount > 0) index += matchedPartCount;
+    else {
+      unresolved.push(parts[index]);
+      index += 1;
+    }
+  }
+
+  return [...new Set(unresolved)];
+}
+
+export function resolveBookingSpaces(
+  facilityId: number,
+  spacesLabel: string | null | undefined,
+  spaceMap: Map<number, Map<string, number>>,
+): BookingSpaceResolution {
+  if (!spacesLabel) return { spaceIds: [], unresolvedLabels: [] };
+  const names = spaceMap.get(facilityId);
+  if (!names) return { spaceIds: [], unresolvedLabels: [spacesLabel] };
+
+  const ids = resolveKnownSpaceLabelSequence(spacesLabel, names);
+  if (ids) return { spaceIds: dedupeIds(ids), unresolvedLabels: [] };
+
+  return {
+    spaceIds: [],
+    unresolvedLabels: unresolvedBookingSpaceLabels(spacesLabel, names),
+  };
+}
+
 export function resolveBookingSpaceIds(
   facilityId: number,
   spacesLabel: string | null | undefined,
   spaceMap: Map<number, Map<string, number>>,
 ): number[] {
-  if (!spacesLabel) return [];
-  const names = spaceMap.get(facilityId);
-  if (!names) return [];
-  const whole = names.get(spacesLabel);
-  if (whole != null) return [whole];
-  const ids: number[] = [];
-  const seen = new Set<number>();
-  for (const part of spacesLabel.split(", ")) {
-    const id = names.get(part);
-    if (id != null && !seen.has(id)) { seen.add(id); ids.push(id); }
-  }
-  return ids;
+  return resolveBookingSpaces(facilityId, spacesLabel, spaceMap).spaceIds;
+}
+
+type BookingSpaceResolutionLog = {
+  facilityId: number;
+  spacesLabel?: string | null;
+  spaceIds: number[];
+  unresolvedLabels: string[];
+};
+
+function bookingSpaceResolutionLog(
+  facilityId: number,
+  spacesLabel: string | null | undefined,
+  resolution: BookingSpaceResolution,
+): BookingSpaceResolutionLog {
+  return {
+    facilityId,
+    spacesLabel,
+    spaceIds: resolution.spaceIds,
+    unresolvedLabels: resolution.unresolvedLabels,
+  };
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {
@@ -108,7 +221,7 @@ function defaultHistoricalBookingStartDate(today = new Date()): string {
 function facilityRow(f: TdsbFacility, pictureFilenames: string[] = []) {
   return {
     id: f.id,
-    name: f.name,
+    name: decodeHtmlEntities(f.name),
     address: decodeHtmlEntities(f.address) ?? null,
     suite: decodeHtmlEntities(f.suite) ?? null,
     city: decodeHtmlEntities(f.city) ?? null,
@@ -131,8 +244,8 @@ function spaceRow(s: TdsbSpace, details?: TdsbSpaceDetails) {
     id: Number(s.id),
     facilityId: Number(s.school_id),
     spaceTypeId: s.space_type_id ? Number(s.space_type_id) : null,
-    name: s.name,
-    type: s.type ?? null,
+    name: decodeHtmlEntities(s.name),
+    type: decodeHtmlEntities(s.type) ?? null,
     isAvailable: s.is_available === "1",
     isAvailableReg: s.is_available_reg === "1",
     hideFromPublic: s.hide_from_public === "1",
@@ -317,11 +430,54 @@ async function spaceMapForFacilities(facilityIds: number[]) {
   return spaceMap;
 }
 
-function logBookingSpaceResolution(bookings: Array<{ spaceIds: number[] }>) {
+function logBookingSpaceResolution(bookings: BookingSpaceResolutionLog[]) {
   const singleSpace = bookings.filter((b) => b.spaceIds.length === 1).length;
   const multiSpace = bookings.filter((b) => b.spaceIds.length > 1).length;
   const empty = bookings.length - singleSpace - multiSpace;
   console.log(`resolved spaceIds: ${singleSpace} single + ${multiSpace} multi-space = ${singleSpace + multiSpace}/${bookings.length} bookings (${empty} empty → facility-level fallback)`);
+
+  const unresolved = bookings.filter((b) => b.unresolvedLabels.length > 0);
+  if (unresolved.length === 0) return;
+
+  const unresolvedParts = unresolved.reduce((sum, booking) => sum + booking.unresolvedLabels.length, 0);
+  const examples = unresolved.slice(0, 5).map((booking) => (
+    `${booking.facilityId} "${booking.spacesLabel ?? ""}" (${booking.unresolvedLabels.join(", ")})`
+  )).join("; ");
+  console.warn(`unresolved booking space labels for ${unresolved.length}/${bookings.length} bookings (${unresolvedParts} label parts); using facility-level fallback. Examples: ${examples}`);
+}
+
+export function bookingSyncSuccessfulFacilityIds(results: Array<{ facilityId: number; failed: boolean }>): number[] {
+  return results.filter((result) => !result.failed).map((result) => result.facilityId);
+}
+
+export function bookingSyncReplacementWhere(facilityIds: number[], startDate: string, endDate: string): {
+  booking: Prisma.BookingWhereInput;
+  specialDate: Prisma.SpecialDateWhereInput;
+} {
+  const start = parseLocalDateTime(`${startDate} 00:00:00`);
+  const end = parseLocalDateTime(`${endDate} 23:59:59`);
+  return {
+    booking: {
+      facilityId: { in: facilityIds },
+      startsAt: { lte: end },
+      endsAt: { gte: start },
+    },
+    specialDate: {
+      facilityId: { in: facilityIds },
+      startsOn: { lte: end },
+      endsOn: { gte: start },
+    },
+  };
+}
+
+function strictBookingSyncEnabled(): boolean {
+  return process.env.STRICT_BOOKING_SYNC === "1";
+}
+
+function throwStrictBookingSyncFailure(failedFacilityIds: number[]): never {
+  throw new Error(
+    `Booking sync failed for ${failedFacilityIds.length} facilities; updated successful facilities and left failed facility caches untouched. Failed facility IDs: ${failedFacilityIds.join(", ")}`,
+  );
 }
 
 export async function syncBookings(startDate?: string, endDate?: string, facilityIds?: number[]) {
@@ -341,22 +497,34 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     return result;
   });
 
-  const spaceMap = await spaceMapForFacilities(facilities.map((f) => f.id));
+  const failedFacilityIds = results.filter((r) => r.failed).map((r) => r.facilityId);
+  const successfulFacilityIds = bookingSyncSuccessfulFacilityIds(results);
+  const successfulResults = results.filter((r) => !r.failed);
+  if (failedFacilityIds.length > 0) {
+    console.warn(`booking sync had ${failedFacilityIds.length} failed facilities; leaving their existing cache untouched: ${failedFacilityIds.join(", ")}`);
+  }
 
-  const bookings = results.flatMap((r) => r.bookings.map((b) => ({
-    id: String(b.id),
-    facilityId: r.facilityId,
-    spaceIds: resolveBookingSpaceIds(r.facilityId, b.spaces, spaceMap),
-    startsAt: parseLocalDateTime(b.start),
-    endsAt: parseLocalDateTime(b.end),
-    statusId: b.status_id == null ? null : Number(b.status_id),
-    purpose: b.purpose,
-    spacesLabel: b.spaces,
-    rawJson: toJson(b),
-    lastSyncedAt: new Date(),
-  })));
-  logBookingSpaceResolution(bookings);
-  const specialDates = results.flatMap((r) => r.specialDates.map((s) => ({
+  const spaceMap = await spaceMapForFacilities(successfulFacilityIds);
+
+  const bookingResolutionLogs: BookingSpaceResolutionLog[] = [];
+  const bookings = successfulResults.flatMap((r) => r.bookings.map((b) => {
+    const resolution = resolveBookingSpaces(r.facilityId, b.spaces, spaceMap);
+    bookingResolutionLogs.push(bookingSpaceResolutionLog(r.facilityId, b.spaces, resolution));
+    return {
+      id: String(b.id),
+      facilityId: r.facilityId,
+      spaceIds: resolution.spaceIds,
+      startsAt: parseLocalDateTime(b.start),
+      endsAt: parseLocalDateTime(b.end),
+      statusId: b.status_id == null ? null : Number(b.status_id),
+      purpose: b.purpose,
+      spacesLabel: b.spaces,
+      rawJson: toJson(b),
+      lastSyncedAt: new Date(),
+    };
+  }));
+  logBookingSpaceResolution(bookingResolutionLogs);
+  const specialDates = successfulResults.flatMap((r) => r.specialDates.map((s) => ({
     id: `${r.facilityId}:${s.id}`,
     facilityId: r.facilityId,
     startsOn: parseLocalDateTime(`${s.start} 00:00:00`),
@@ -366,14 +534,32 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     lastSyncedAt: new Date(),
   })));
 
-  await prisma.$transaction([
-    prisma.booking.deleteMany({ where: { startsAt: { gte: parseLocalDateTime(`${start} 00:00:00`) } } }),
-    prisma.specialDate.deleteMany(),
-  ]);
-  for (const group of chunks(bookings, 1000)) await prisma.booking.createMany({ data: group, skipDuplicates: true });
-  for (const group of chunks(specialDates, 1000)) await prisma.specialDate.createMany({ data: group, skipDuplicates: true });
+  if (successfulFacilityIds.length > 0) {
+    const replacementWhere = bookingSyncReplacementWhere(successfulFacilityIds, start, end);
+    const writes = [
+      prisma.booking.deleteMany({ where: replacementWhere.booking }),
+      prisma.specialDate.deleteMany({ where: replacementWhere.specialDate }),
+    ];
+    for (const group of chunks(bookings, 1000)) writes.push(prisma.booking.createMany({ data: group, skipDuplicates: true }));
+    for (const group of chunks(specialDates, 1000)) writes.push(prisma.specialDate.createMany({ data: group, skipDuplicates: true }));
+    await prisma.$transaction(writes);
+  }
 
-  return { facilities: facilities.length, skippedFacilities, bookings: bookings.length, specialDates: specialDates.length, failures: results.filter((r) => r.failed).length, startDate: start, endDate: end };
+  if (failedFacilityIds.length > 0 && strictBookingSyncEnabled()) {
+    throwStrictBookingSyncFailure(failedFacilityIds);
+  }
+
+  return {
+    facilities: facilities.length,
+    skippedFacilities,
+    refreshedFacilities: successfulFacilityIds.length,
+    bookings: bookings.length,
+    specialDates: specialDates.length,
+    failures: failedFacilityIds.length,
+    failedFacilityIds,
+    startDate: start,
+    endDate: end,
+  };
 }
 
 export async function syncHistoricalBookings(startDate?: string, endDate?: string, facilityIds?: number[]) {
@@ -392,19 +578,24 @@ export async function syncHistoricalBookings(startDate?: string, endDate?: strin
   });
 
   const spaceMap = await spaceMapForFacilities(facilities.map((f) => f.id));
-  const bookings = results.flatMap((r) => r.bookings.map((b) => ({
-    id: String(b.id),
-    facilityId: r.facilityId,
-    spaceIds: resolveBookingSpaceIds(r.facilityId, b.spaces, spaceMap),
-    startsAt: parseLocalDateTime(b.start),
-    endsAt: parseLocalDateTime(b.end),
-    statusId: b.status_id == null ? null : Number(b.status_id),
-    purpose: b.purpose,
-    spacesLabel: b.spaces,
-    rawJson: toJson(b),
-    lastSyncedAt: new Date(),
-  })));
-  logBookingSpaceResolution(bookings);
+  const bookingResolutionLogs: BookingSpaceResolutionLog[] = [];
+  const bookings = results.flatMap((r) => r.bookings.map((b) => {
+    const resolution = resolveBookingSpaces(r.facilityId, b.spaces, spaceMap);
+    bookingResolutionLogs.push(bookingSpaceResolutionLog(r.facilityId, b.spaces, resolution));
+    return {
+      id: String(b.id),
+      facilityId: r.facilityId,
+      spaceIds: resolution.spaceIds,
+      startsAt: parseLocalDateTime(b.start),
+      endsAt: parseLocalDateTime(b.end),
+      statusId: b.status_id == null ? null : Number(b.status_id),
+      purpose: b.purpose,
+      spacesLabel: b.spaces,
+      rawJson: toJson(b),
+      lastSyncedAt: new Date(),
+    };
+  }));
+  logBookingSpaceResolution(bookingResolutionLogs);
 
   for (const group of chunks(bookings, 1000)) await prisma.booking.createMany({ data: group, skipDuplicates: true });
 

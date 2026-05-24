@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
+import { isDeadlineBannerDismissed, restoreDeadlineBanner } from "@/app/components/deadline-banner";
 import { CATEGORY_LABELS, getFee, type FeeCategory, type TimeOfUse } from "@/lib/fees";
 
-type SettingsTab = "subsidy" | "layout";
+type SettingsTab = "subsidy" | "other";
 
 export const FEE_CATEGORIES: FeeCategory[] = ["A1", "A2", "B", "C"];
 export const CATEGORY_STORAGE_KEY = "tdsb-permit-finder.feeCategory";
@@ -138,6 +139,14 @@ export function CategoryModal({
   onChangeScheduleOrient: (next: EffectiveScheduleOrient) => void;
 }) {
   const [tab, setTab] = useState<SettingsTab>("subsidy");
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  useEffect(() => {
+    if (tab === "other") setBannerDismissed(isDeadlineBannerDismissed());
+  }, [tab]);
+  const handleRestoreBanner = () => {
+    restoreDeadlineBanner();
+    setBannerDismissed(false);
+  };
   return (
     <div
       className="photo-modal-overlay"
@@ -162,10 +171,10 @@ export function CategoryModal({
           >Subsidy</button>
           <button
             type="button"
-            className={tab === "layout" ? "active" : ""}
-            onClick={() => setTab("layout")}
-            aria-pressed={tab === "layout"}
-          >Schedule layout</button>
+            className={tab === "other" ? "active" : ""}
+            onClick={() => setTab("other")}
+            aria-pressed={tab === "other"}
+          >Other</button>
         </nav>
         <div className="photo-modal-body category-modal-body">
           {tab === "subsidy" ? (
@@ -205,23 +214,39 @@ export function CategoryModal({
               </p>
             </>
           ) : (
-            <div role="group" aria-labelledby="schedule-layout-label">
-              <div id="schedule-layout-label" className="modal-section-label">Schedule layout</div>
-              <div className="segment">
-                <button
-                  type="button"
-                  className={effectiveScheduleOrient === "days" ? "active" : ""}
-                  onClick={() => onChangeScheduleOrient("days")}
-                  aria-pressed={effectiveScheduleOrient === "days"}
-                >Days as rows</button>
-                <button
-                  type="button"
-                  className={effectiveScheduleOrient === "times" ? "active" : ""}
-                  onClick={() => onChangeScheduleOrient("times")}
-                  aria-pressed={effectiveScheduleOrient === "times"}
-                >Times as rows</button>
+            <>
+              <div role="group" aria-labelledby="schedule-layout-label">
+                <div id="schedule-layout-label" className="modal-section-label">Schedule layout</div>
+                <div className="segment">
+                  <button
+                    type="button"
+                    className={effectiveScheduleOrient === "days" ? "active" : ""}
+                    onClick={() => onChangeScheduleOrient("days")}
+                    aria-pressed={effectiveScheduleOrient === "days"}
+                  >Days as rows</button>
+                  <button
+                    type="button"
+                    className={effectiveScheduleOrient === "times" ? "active" : ""}
+                    onClick={() => onChangeScheduleOrient("times")}
+                    aria-pressed={effectiveScheduleOrient === "times"}
+                  >Times as rows</button>
+                </div>
               </div>
-            </div>
+              <div role="group" aria-labelledby="notifications-label">
+                <div id="notifications-label" className="modal-section-label">Deadline banner</div>
+                <p className="meta category-modal-intro">
+                  {bannerDismissed
+                    ? "The banner reminding you of the next TDSB bulk-processing deadline is currently hidden."
+                    : "The banner reminding you of the next TDSB bulk-processing deadline is currently visible at the top of the page."}
+                </p>
+                <button
+                  type="button"
+                  className="secondary ghost"
+                  onClick={handleRestoreBanner}
+                  disabled={!bannerDismissed}
+                >Show deadline banner</button>
+              </div>
+            </>
           )}
         </div>
       </div>

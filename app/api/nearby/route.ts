@@ -1,4 +1,4 @@
-import { format, parseISO, startOfWeek, addDays, addWeeks } from "date-fns";
+import { format, parseISO, startOfWeek, addDays, addWeeks, subWeeks } from "date-fns";
 import { NextResponse } from "next/server";
 import { nearbySearchRequestSchema } from "@/lib/api-contracts";
 import { distanceKm } from "@/lib/distance";
@@ -49,12 +49,21 @@ export async function POST(request: Request) {
   const nearest = [...facilityMap.values()].sort((a, b) => a.distanceKm - b.distanceKm).slice(0, search.limit);
   const facilityIds = nearest.map((row) => row.facility.id);
 
-  const [bookings, specialDates] = await Promise.all([
+  const [bookings, historicalBookings, specialDates] = await Promise.all([
     prisma.booking.findMany({
       where: {
         facilityId: { in: facilityIds },
         startsAt: { lte: rangeEnd },
         endsAt: { gte: rangeStart },
+      },
+    }),
+    prisma.booking.findMany({
+      where: {
+        facilityId: { in: facilityIds },
+        OR: [1, 2].map((yearsBack) => ({
+          startsAt: { lte: subWeeks(rangeEnd, 52 * yearsBack) },
+          endsAt: { gte: subWeeks(rangeStart, 52 * yearsBack) },
+        })),
       },
     }),
     prisma.specialDate.findMany({
@@ -75,6 +84,7 @@ export async function POST(request: Request) {
       spaces,
       facilityHours: facility.hoursJson,
       bookings: bookings.filter((b) => b.facilityId === facility.id),
+      historicalBookings: historicalBookings.filter((b) => b.facilityId === facility.id),
       specialDates: specialDates.filter((s) => s.facilityId === facility.id),
     });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseDateWithTime, parseLocalDateTime } from "../lib/time";
+import { dateOnly, parseDateWithTime, parseLocalDateTime } from "../lib/time";
 
 describe("parseDateWithTime — pinned to America/Toronto", () => {
   it("treats 2026-09-15 18:00 as 18:00 EDT (= 22:00Z)", () => {
@@ -21,6 +21,23 @@ describe("parseDateWithTime — pinned to America/Toronto", () => {
     expect(parseDateWithTime("2026-11-01", "00:00").toISOString()).toBe("2026-11-01T04:00:00.000Z");
     // 03:00 EST (after the fall-back).
     expect(parseDateWithTime("2026-11-01", "03:00").toISOString()).toBe("2026-11-01T08:00:00.000Z");
+  });
+});
+
+describe("dateOnly — pinned to America/Toronto", () => {
+  it("returns the Toronto calendar day for a late-evening slot that crosses UTC midnight", () => {
+    // 21:00 EDT = 01:00 UTC next day. Toronto day is still the prior calendar day.
+    expect(dateOnly(parseDateWithTime("2026-10-12", "21:00"))).toBe("2026-10-12");
+  });
+
+  it("returns the Toronto calendar day when the absolute instant is on Tuesday UTC but Monday Toronto", () => {
+    // Special-date endsOn for Thanksgiving Mon 2026-10-12 is stored as 03:59:59 UTC on 2026-10-13.
+    // Decoded by Prisma as 2026-10-13T03:59:59Z = 2026-10-12 23:59:59 EDT. dateOnly must say "2026-10-12".
+    expect(dateOnly(new Date("2026-10-13T03:59:59Z"))).toBe("2026-10-12");
+  });
+
+  it("returns the matching day for a midday timestamp", () => {
+    expect(dateOnly(parseDateWithTime("2026-06-15", "12:00"))).toBe("2026-06-15");
   });
 });
 

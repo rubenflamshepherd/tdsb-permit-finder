@@ -63,6 +63,19 @@ export function FeeBadge({
   category: FeeCategory;
   timeOfUse?: Exclude<TimeOfUse, "outdoor" | "school-break">;
 }) {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".fee-badge, .fee-tooltip")) return;
+      setOpen(false);
+    };
+    document.addEventListener("pointerdown", handler);
+    return () => document.removeEventListener("pointerdown", handler);
+  }, [open]);
+
   if (spaceTypeId == null) return null;
   const outdoorRate = getFee(spaceTypeId, category, "outdoor");
   const indoorRates = outdoorRate == null
@@ -75,9 +88,15 @@ export function FeeBadge({
   const isWeekend = timeOfUse === "saturday" || timeOfUse === "sunday-holiday";
 
   return (
-    <Tooltip.Root>
+    <Tooltip.Root open={open} onOpenChange={setOpen}>
       <Tooltip.Trigger asChild>
-        <span className={`fee-badge${isWeekend ? " fee-badge-weekend" : ""}`} tabIndex={0}>
+        <span
+          className={`fee-badge${isWeekend ? " fee-badge-weekend" : ""}`}
+          tabIndex={0}
+          role="button"
+          aria-pressed={open}
+          onClick={() => setOpen((o) => !o)}
+        >
           {formatCurrency(primary)}/hr
           <em className="fee-badge-cat">{outdoorRate != null ? category : `${SHORT_TIME_LABEL[timeOfUse]} · ${category}`}</em>
         </span>
@@ -139,13 +158,14 @@ export function CategoryModal({
   onChangeScheduleOrient: (next: EffectiveScheduleOrient) => void;
 }) {
   const [tab, setTab] = useState<SettingsTab>("subsidy");
-  const [bannerDismissed, setBannerDismissed] = useState(false);
-  useEffect(() => {
-    if (tab === "other") setBannerDismissed(isDeadlineBannerDismissed());
-  }, [tab]);
+  const [bannerDismissed, setBannerDismissed] = useState(() => isDeadlineBannerDismissed());
   const handleRestoreBanner = () => {
     restoreDeadlineBanner();
     setBannerDismissed(false);
+  };
+  const showOtherTab = () => {
+    setBannerDismissed(isDeadlineBannerDismissed());
+    setTab("other");
   };
   return (
     <div
@@ -172,7 +192,7 @@ export function CategoryModal({
           <button
             type="button"
             className={tab === "other" ? "active" : ""}
-            onClick={() => setTab("other")}
+            onClick={showOtherTab}
             aria-pressed={tab === "other"}
           >Other</button>
         </nav>

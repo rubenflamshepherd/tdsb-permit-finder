@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && next build --webpack",
     "start": "next start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
@@ -14,9 +14,11 @@
     "sync:inventory": "tsx scripts/sync-inventory.ts",
     "sync:historical": "tsx scripts/sync-historical-bookings.ts",
     "sync:bookings": "tsx scripts/sync-bookings.ts",
+    "stats:area": "tsx scripts/compute-space-area-stats.ts",
     "test": "vitest run"
   },
   "dependencies": {
+    "@next/third-parties": "^16.2.6",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "latest",

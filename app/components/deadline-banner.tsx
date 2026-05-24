@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { nextDeadline, type Deadline } from "@/lib/deadlines";
 
 const STORAGE_PREFIX = "deadline-banner-dismissed:";
@@ -10,9 +10,23 @@ function storageKeyFor(deadline: Deadline): string {
   return `${STORAGE_PREFIX}${deadline.kind}:${deadline.occursAt.getFullYear()}`;
 }
 
-export function isDeadlineBannerDismissed(): boolean {
+function subscribeDeadlineBanner(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(BANNER_CHANGE_EVENT, onStoreChange);
+  window.addEventListener("storage", onStoreChange);
+  return () => {
+    window.removeEventListener(BANNER_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStoreChange);
+  };
+}
+
+function isStorageKeyDismissed(storageKey: string): boolean {
   if (typeof window === "undefined") return false;
-  return localStorage.getItem(storageKeyFor(nextDeadline(new Date()))) === "true";
+  return localStorage.getItem(storageKey) === "true";
+}
+
+export function isDeadlineBannerDismissed(): boolean {
+  return isStorageKeyDismissed(storageKeyFor(nextDeadline(new Date())));
 }
 
 export function restoreDeadlineBanner(): void {
@@ -22,20 +36,15 @@ export function restoreDeadlineBanner(): void {
 }
 
 export function DeadlineBanner() {
-  const [mounted, setMounted] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
   const bannerRef = useRef<HTMLDivElement>(null);
 
   const deadline = useMemo(() => nextDeadline(new Date()), []);
   const storageKey = storageKeyFor(deadline);
-
-  useEffect(() => {
-    const sync = () => setDismissed(localStorage.getItem(storageKey) === "true");
-    sync();
-    setMounted(true);
-    window.addEventListener(BANNER_CHANGE_EVENT, sync);
-    return () => window.removeEventListener(BANNER_CHANGE_EVENT, sync);
-  }, [storageKey]);
+  const dismissed = useSyncExternalStore(
+    subscribeDeadlineBanner,
+    () => isStorageKeyDismissed(storageKey),
+    () => true,
+  );
 
   useEffect(() => {
     const el = bannerRef.current;
@@ -43,20 +52,33 @@ export function DeadlineBanner() {
       document.body.style.removeProperty("--banner-height");
       return;
     }
+    let rafId: number | null = null;
     const update = () => {
-      document.body.style.setProperty("--banner-height", `${el.offsetHeight}px`);
+      rafId = null;
+      const visible = Math.max(0, el.getBoundingClientRect().bottom);
+      document.body.style.setProperty("--banner-height", `${visible}px`);
+    };
+    const schedule = () => {
+      if (rafId != null) return;
+      rafId = requestAnimationFrame(update);
     };
     update();
-    const observer = new ResizeObserver(update);
+    const observer = new ResizeObserver(schedule);
     observer.observe(el);
-    return () => observer.disconnect();
-  }, [mounted, dismissed]);
+    window.addEventListener("scroll", schedule, { passive: true });
+    window.addEventListener("resize", schedule);
+    return () => {
+      if (rafId != null) cancelAnimationFrame(rafId);
+      observer.disconnect();
+      window.removeEventListener("scroll", schedule);
+      window.removeEventListener("resize", schedule);
+    };
+  }, [dismissed]);
 
-  if (!mounted || dismissed) return null;
+  if (dismissed) return null;
 
   const dismiss = () => {
     localStorage.setItem(storageKey, "true");
-    setDismissed(true);
     window.dispatchEvent(new Event(BANNER_CHANGE_EVENT));
   };
 

@@ -210,12 +210,12 @@ export const NearbyMap = forwardRef<NearbyMapHandle, {
         }
         mapRef.current.easeTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 13.5), offset: [0, 110], duration: 500 });
         const target = schoolMarkerByIdRef.current.get(school.facility.id);
-        const wasOpen = target?.getPopup()?.isOpen() ?? false;
         schoolMarkersRef.current.forEach((m) => {
+          if (m === target) return;
           const popup = m.getPopup();
           if (popup?.isOpen()) popup.remove();
         });
-        if (!wasOpen) target?.togglePopup();
+        if (target && !target.getPopup()?.isOpen()) target.togglePopup();
       },
       highlightSchool(facilityId, highlighted) {
         schoolMarkerByIdRef.current.get(facilityId)?.getElement().classList.toggle("is-highlighted", highlighted);

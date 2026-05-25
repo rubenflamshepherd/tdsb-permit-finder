@@ -76,6 +76,7 @@ button.secondary.ghost:hover { background: #f4f8f4; }
 .map-canvas .maplibregl-ctrl-group { border: 1px solid rgba(185,197,187,.82); border-radius: 12px; overflow: hidden; box-shadow: 0 10px 28px rgba(23,33,27,.14); }
 .map-canvas .maplibregl-ctrl-group button { border-radius: 0; background: rgba(255,255,255,.96); color: var(--ink); padding: 0; }
 .map-canvas .maplibregl-ctrl-group button:hover { background: #f2f7f3; transform: none; }
+.map-canvas .maplibregl-popup { z-index: 3; filter: drop-shadow(0 0 .5px rgba(23,33,27,.28)); }
 .selected-location-marker { position: relative; width: 34px; height: 34px; display: grid; place-items: center; pointer-events: none; }
 .selected-location-pulse { position: absolute; width: 34px; height: 34px; border-radius: 999px; background: rgba(24,92,55,.16); box-shadow: 0 0 0 10px rgba(24,92,55,.08); }
 .selected-location-core { position: relative; width: 16px; height: 16px; border: 3px solid white; border-radius: 999px; background: var(--brand); box-shadow: 0 8px 20px rgba(23,33,27,.3); }

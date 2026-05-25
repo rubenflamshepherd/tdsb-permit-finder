@@ -95,3 +95,10 @@ model SpecialDate {
 
   @@index([facilityId, startsOn, endsOn])
 }
+
+model SyncStatus {
+  key                  String   @id
+  lastSuccessfulSyncAt DateTime
+  summaryJson          Json?
+  updatedAt            DateTime @updatedAt
+}

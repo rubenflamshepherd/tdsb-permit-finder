@@ -20,6 +20,8 @@ a { color: inherit; }
 h1 { font-size: clamp(34px, 5vw, 64px); line-height: .95; margin: 0; max-width: 850px; letter-spacing: -.04em; }
 h2 { margin: 0; font-size: 20px; letter-spacing: -.02em; }
 .hero p, .search-header p { color: var(--muted); max-width: 720px; font-size: 18px; margin: 0; }
+.hero .hero-sync-status { font-size: 13px; font-weight: 800; color: var(--muted); }
+.hero .hero-sync-status time { color: var(--brand); }
 .search-header p { font-size: 14px; margin-top: 4px; }
 @media (max-width: 640px) { .hero h1, .search-header p { text-align: center; margin-inline: auto; } }
 .card { background: color-mix(in srgb, var(--panel) 92%, transparent); border: 1px solid rgba(217,222,216,.9); border-radius: 24px; box-shadow: var(--shadow); backdrop-filter: blur(10px); }

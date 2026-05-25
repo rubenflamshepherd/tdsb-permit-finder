@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dateOnly, parseDateWithTime, parseLocalDateTime } from "../lib/time";
+import { dateOnly, formatTdsbTimestamp, parseDateWithTime, parseLocalDateTime } from "../lib/time";
 
 describe("parseDateWithTime — pinned to America/Toronto", () => {
   it("treats 2026-09-15 18:00 as 18:00 EDT (= 22:00Z)", () => {
@@ -48,5 +48,11 @@ describe("parseLocalDateTime — pinned to America/Toronto", () => {
 
   it("treats 2026-01-15 23:59:59 as EST (= 04:59:59Z next day)", () => {
     expect(parseLocalDateTime("2026-01-15 23:59:59").toISOString()).toBe("2026-01-16T04:59:59.000Z");
+  });
+});
+
+describe("formatTdsbTimestamp — pinned to America/Toronto", () => {
+  it("formats a UTC timestamp as Toronto local time for the freshness label", () => {
+    expect(formatTdsbTimestamp(new Date("2026-01-01T13:00:00.000Z"))).toBe("8:00AM Jan 1, 2026");
   });
 });

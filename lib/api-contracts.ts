@@ -66,3 +66,9 @@ export type NearbySearchResponse = {
   schools: NearbySchool[];
   weekStart: string;
 };
+
+export type SyncStatusResponse = {
+  inventory: {
+    lastSuccessfulSyncAt: string;
+  } | null;
+};

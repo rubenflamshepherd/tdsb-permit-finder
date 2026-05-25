@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { addDays, format, isBefore } from "date-fns";
 import { prisma } from "./prisma";
 import { decodeHtmlEntities } from "./html-entities";
+import { INVENTORY_SYNC_STATUS_KEY } from "./sync-status";
 import { TdsbClient, TdsbFacility, TdsbSpace, TdsbSpaceDetails } from "./tdsb-client";
 import { parseLocalDateTime } from "./time";
 
@@ -399,7 +400,22 @@ export async function syncInventory(permitTypeId = 3) {
   });
   await upsertSpaceRows(spaceRows);
 
-  return { spaceTypes: typeMap.size, facilities: facilities.length, spaces: spaces.length, spaceDetails: detailsBySpaceId.size };
+  const result = { spaceTypes: typeMap.size, facilities: facilities.length, spaces: spaces.length, spaceDetails: detailsBySpaceId.size };
+  const completedAt = new Date();
+  await prisma.syncStatus.upsert({
+    where: { key: INVENTORY_SYNC_STATUS_KEY },
+    create: {
+      key: INVENTORY_SYNC_STATUS_KEY,
+      lastSuccessfulSyncAt: completedAt,
+      summaryJson: toJson(result),
+    },
+    update: {
+      lastSuccessfulSyncAt: completedAt,
+      summaryJson: toJson(result),
+    },
+  });
+
+  return result;
 }
 
 async function facilitiesForBookingSync(facilityIds?: number[]) {

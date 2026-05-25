@@ -232,7 +232,7 @@ button.secondary.ghost:hover { background: #f4f8f4; }
   .map-search { backdrop-filter: none; }
   .map-controls { position: fixed; left: 0; right: 0; bottom: 0; z-index: 40; gap: 0; background: var(--panel); border-top: 1px solid var(--line); border-radius: 22px 22px 0 0; box-shadow: 0 -16px 40px rgba(23,33,27,.18); padding: 0 16px max(20px, env(safe-area-inset-bottom)); transform: translateY(calc(100% - 56px)); transition: transform .22s ease; max-height: 78dvh; overflow-y: auto; }
   .map-controls.is-open { transform: translateY(0); }
-  .map-controls-handle { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; background: var(--panel); color: var(--ink); box-shadow: none; padding: 18px 4px 12px; border-radius: 0; font-weight: 800; font-size: 14px; position: sticky; top: 0; z-index: 1; }
+  .map-controls-handle { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; background: var(--panel); color: var(--ink); box-shadow: none; padding: 18px 4px 12px; border-radius: 0; font-weight: 800; font-size: 14px; position: sticky; top: 0; z-index: 1; touch-action: none; user-select: none; -webkit-user-select: none; }
   .map-controls-handle:hover { transform: none; }
   .map-controls-handle-grab { position: absolute; top: 6px; left: 50%; transform: translateX(-50%); width: 36px; height: 4px; background: var(--line); border-radius: 999px; }
   .map-controls-handle-label { flex: 1; text-align: left; padding-left: 2px; }

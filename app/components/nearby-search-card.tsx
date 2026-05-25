@@ -1,10 +1,14 @@
 "use client";
 
-import type { Dispatch, Ref, SetStateAction } from "react";
+import { useRef, type Dispatch, type PointerEvent as ReactPointerEvent, type Ref, type SetStateAction } from "react";
 import type { NearbySchool } from "@/lib/api-contracts";
 import { NearbyMap, type NearbyMapHandle } from "./nearby-map";
 import type { NearbyForm, SpaceType } from "./nearby-search-types";
 import { SpaceTypePicker } from "./space-type-picker";
+
+const HANDLE_PEEK_PX = 56;
+const DRAG_TAP_THRESHOLD_PX = 4;
+const DRAG_SNAP_RATIO = 0.25;
 
 export function NearbySearchCard({
   nearbyForm,
@@ -37,6 +41,56 @@ export function NearbySearchCard({
   onOpenPermitWindow: () => void;
   mapRef: Ref<NearbyMapHandle>;
 }) {
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const dragRef = useRef<{ startY: number; baseline: number; closedY: number; moved: boolean } | null>(null);
+  const suppressClickRef = useRef(false);
+
+  const onHandlePointerDown = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    const closedY = Math.max(0, sheet.offsetHeight - HANDLE_PEEK_PX);
+    dragRef.current = {
+      startY: event.clientY,
+      baseline: filtersOpen ? 0 : closedY,
+      closedY,
+      moved: false,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    sheet.style.transition = "none";
+  };
+
+  const onHandlePointerMove = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    const sheet = sheetRef.current;
+    if (!drag || !sheet) return;
+    const delta = event.clientY - drag.startY;
+    if (!drag.moved && Math.abs(delta) > DRAG_TAP_THRESHOLD_PX) drag.moved = true;
+    const effective = Math.max(0, Math.min(drag.closedY, drag.baseline + delta));
+    sheet.style.transform = `translateY(${effective}px)`;
+  };
+
+  const onHandlePointerEnd = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current;
+    const sheet = sheetRef.current;
+    if (!drag || !sheet) return;
+    dragRef.current = null;
+    sheet.style.transition = "";
+    sheet.style.transform = "";
+    if (!drag.moved) return;
+    suppressClickRef.current = true;
+    setTimeout(() => { suppressClickRef.current = false; }, 0);
+    const delta = event.clientY - drag.startY;
+    const threshold = drag.closedY * DRAG_SNAP_RATIO;
+    if (filtersOpen && delta > threshold) onToggleFilters();
+    else if (!filtersOpen && -delta > threshold) onToggleFilters();
+  };
+
+  const onHandleClick = () => {
+    if (suppressClickRef.current) return;
+    onToggleFilters();
+  };
+
   return (
     <section className="card search map-search">
       <div className="search-header">
@@ -59,11 +113,15 @@ export function NearbySearchCard({
           schools={schools}
           onPointChange={(point) => onNearbyFormChange((current) => ({ ...current, point }))}
         />
-        <div className={`map-controls${filtersOpen ? " is-open" : ""}`}>
+        <div ref={sheetRef} className={`map-controls${filtersOpen ? " is-open" : ""}`}>
           <button
             type="button"
             className="map-controls-handle"
-            onClick={onToggleFilters}
+            onClick={onHandleClick}
+            onPointerDown={onHandlePointerDown}
+            onPointerMove={onHandlePointerMove}
+            onPointerUp={onHandlePointerEnd}
+            onPointerCancel={onHandlePointerEnd}
             aria-expanded={filtersOpen}
             aria-controls="map-controls-fields"
           >

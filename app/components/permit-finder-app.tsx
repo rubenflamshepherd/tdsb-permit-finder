@@ -10,7 +10,6 @@ import { PhotoGalleryModal, type GallerySpace } from "@/app/components/photo-gal
 import { useNearbySearch } from "@/app/hooks/use-nearby-search";
 import { usePermitFinderSettings } from "@/app/hooks/use-permit-finder-settings";
 import { trackEvent } from "@/lib/analytics";
-import { formatTdsbTimestamp } from "@/lib/time";
 
 export function PermitFinderApp({ autoSearch = false }: { autoSearch?: boolean }) {
   const mapRef = useRef<NearbyMapHandle>(null);
@@ -24,7 +23,6 @@ export function PermitFinderApp({ autoSearch = false }: { autoSearch?: boolean }
     spaceTypeId,
     setSpaceTypeId,
     spaceTypes,
-    syncStatus,
     nearby,
     hasCurrentNearbyResults,
     startNearbySearch,
@@ -48,7 +46,6 @@ export function PermitFinderApp({ autoSearch = false }: { autoSearch?: boolean }
   }, [autoSearch, startNearbySearch]);
 
   const schools = hasCurrentNearbyResults ? nearby.data?.schools ?? [] : [];
-  const lastInventorySyncAt = syncStatus.inventory?.lastSuccessfulSyncAt;
 
   return (
     <main className="container">
@@ -65,11 +62,6 @@ export function PermitFinderApp({ autoSearch = false }: { autoSearch?: boolean }
           <span>TDSB permit finder</span>
         </div>
         <h1>Find school spaces that fit your schedule.</h1>
-        {lastInventorySyncAt ? (
-          <p className="hero-sync-status">
-            Last Updated <time dateTime={lastInventorySyncAt}>{formatTdsbTimestamp(lastInventorySyncAt)}</time>
-          </p>
-        ) : null}
       </section>
 
       <NearbySearchCard

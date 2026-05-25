@@ -11,8 +11,7 @@ type SettingsTab = "subsidy" | "other";
 export const FEE_CATEGORIES: FeeCategory[] = ["A1", "A2", "B", "C"];
 export const CATEGORY_STORAGE_KEY = "tdsb-permit-finder.feeCategory";
 export const SCHEDULE_ORIENT_STORAGE_KEY = "tdsb-permit-finder.scheduleOrient";
-export type ScheduleOrient = "auto" | "days" | "times";
-export type EffectiveScheduleOrient = "days" | "times";
+export type ScheduleOrient = "days" | "times";
 
 const CATEGORY_DETAILS: Record<FeeCategory, { title: string; tagline: string; blurb: string }> = {
   A1: {
@@ -149,14 +148,14 @@ export function CategoryModal({
   feeCategory,
   onClose,
   onSelect,
-  effectiveScheduleOrient,
+  scheduleOrient,
   onChangeScheduleOrient,
 }: {
   feeCategory: FeeCategory;
   onClose: () => void;
   onSelect: (category: FeeCategory) => void;
-  effectiveScheduleOrient: EffectiveScheduleOrient;
-  onChangeScheduleOrient: (next: EffectiveScheduleOrient) => void;
+  scheduleOrient: ScheduleOrient;
+  onChangeScheduleOrient: (next: ScheduleOrient) => void;
 }) {
   const [tab, setTab] = useState<SettingsTab>("subsidy");
   const [bannerDismissed, setBannerDismissed] = useState(() => isDeadlineBannerDismissed());
@@ -241,15 +240,15 @@ export function CategoryModal({
                 <div className="segment">
                   <button
                     type="button"
-                    className={effectiveScheduleOrient === "days" ? "active" : ""}
+                    className={scheduleOrient === "days" ? "active" : ""}
                     onClick={() => onChangeScheduleOrient("days")}
-                    aria-pressed={effectiveScheduleOrient === "days"}
+                    aria-pressed={scheduleOrient === "days"}
                   >Days as rows</button>
                   <button
                     type="button"
-                    className={effectiveScheduleOrient === "times" ? "active" : ""}
+                    className={scheduleOrient === "times" ? "active" : ""}
                     onClick={() => onChangeScheduleOrient("times")}
-                    aria-pressed={effectiveScheduleOrient === "times"}
+                    aria-pressed={scheduleOrient === "times"}
                   >Times as rows</button>
                 </div>
               </div>

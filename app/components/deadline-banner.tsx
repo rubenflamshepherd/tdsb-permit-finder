@@ -86,7 +86,7 @@ export function DeadlineBanner() {
     <div ref={bannerRef} className="deadline-banner" role="region" aria-label="Next permit application deadline">
       <div className="deadline-banner-inner">
         <p>
-          <strong>From TDSB:</strong> The deadline date that you can submit permit applications for
+          The deadline date that you can submit permit applications for
           bulk processing is <strong>{deadline.label}</strong> for {deadline.description}. For more
           info{" "}
           <a

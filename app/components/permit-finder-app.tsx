@@ -33,7 +33,7 @@ export function PermitFinderApp({ autoSearch = false }: { autoSearch?: boolean }
     feeCategory,
     categoryModalOpen,
     setCategoryModalOpen,
-    effectiveScheduleOrient,
+    scheduleOrient,
     selectFeeCategory,
     selectScheduleOrient,
   } = usePermitFinderSettings();
@@ -112,7 +112,7 @@ export function PermitFinderApp({ autoSearch = false }: { autoSearch?: boolean }
           feeCategory={feeCategory}
           onClose={() => setCategoryModalOpen(false)}
           onSelect={selectFeeCategory}
-          effectiveScheduleOrient={effectiveScheduleOrient}
+          scheduleOrient={scheduleOrient}
           onChangeScheduleOrient={selectScheduleOrient}
         />
       ) : null}

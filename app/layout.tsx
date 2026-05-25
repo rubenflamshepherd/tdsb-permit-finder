@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { DeadlineBanner } from "./components/deadline-banner";
+import { SiteFooter } from "./components/site-footer";
 import { Providers } from "./providers";
 import "./globals.css";
 
@@ -17,13 +18,10 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en">
       <body>
         <DeadlineBanner />
-        <Providers>{children}</Providers>
-        <footer className="site-footer">
-          Made by{" "}
-          <a href="https://rubenflamshepherd.com" target="_blank" rel="noopener noreferrer">
-            Ruben
-          </a>
-        </footer>
+        <Providers>
+          {children}
+          <SiteFooter />
+        </Providers>
         {GA_ID ? <GoogleAnalytics gaId={GA_ID} /> : null}
       </body>
     </html>

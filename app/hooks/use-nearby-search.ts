@@ -2,7 +2,7 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import type { NearbySearchResponse, SyncStatusResponse } from "@/lib/api-contracts";
+import type { NearbySearchResponse } from "@/lib/api-contracts";
 import type { NearbyForm, SpaceType } from "@/app/components/nearby-search-types";
 
 function upcomingSept15() {
@@ -26,15 +26,6 @@ export function useNearbySearch() {
   const { data: spaceTypes = [] } = useQuery({
     queryKey: ["space-types"],
     queryFn: async () => (await fetch("/api/space-types")).json() as Promise<SpaceType[]>,
-  });
-
-  const { data: syncStatus = { inventory: null } } = useQuery({
-    queryKey: ["sync-status"],
-    queryFn: async () => {
-      const res = await fetch("/api/sync-status");
-      if (!res.ok) return { inventory: null } satisfies SyncStatusResponse;
-      return (await res.json()) as SyncStatusResponse;
-    },
   });
 
   const nearbySearchKey = useMemo(() => JSON.stringify({
@@ -96,7 +87,6 @@ export function useNearbySearch() {
     spaceTypeId,
     setSpaceTypeId,
     spaceTypes,
-    syncStatus,
     nearby,
     hasCurrentNearbyResults,
     startNearbySearch,

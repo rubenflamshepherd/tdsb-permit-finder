@@ -199,6 +199,15 @@ export const NearbyMap = forwardRef<NearbyMapHandle, {
         const lat = school.facility.latitude;
         const lng = school.facility.longitude;
         if (!mapRef.current || lat == null || lng == null) return;
+        const container = mapContainerRef.current;
+        if (container) {
+          const rect = container.getBoundingClientRect();
+          const viewHeight = window.innerHeight || document.documentElement.clientHeight;
+          const visibleHeight = Math.max(0, Math.min(rect.bottom, viewHeight) - Math.max(rect.top, 0));
+          if (visibleHeight < Math.min(rect.height, viewHeight) * 0.5) {
+            container.scrollIntoView({ behavior: "smooth", block: "start" });
+          }
+        }
         mapRef.current.easeTo({ center: [lng, lat], zoom: Math.max(mapRef.current.getZoom(), 13.5), offset: [0, 110], duration: 500 });
         const target = schoolMarkerByIdRef.current.get(school.facility.id);
         const wasOpen = target?.getPopup()?.isOpen() ?? false;

@@ -44,6 +44,8 @@ function lastYearStatusForWeek(week: TooltipWeek): "Free" | "Booked" {
   return historicalYearsForWeek(week).includes(1) ? "Booked" : "Free";
 }
 
+const DISCLAIMER_DISMISSED_KEY = "nearby-disclaimer-dismissed";
+
 export function NearbyResults({
   error,
   showResults,
@@ -65,6 +67,21 @@ export function NearbyResults({
   const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
   const [areaModalContext, setAreaModalContext] = useState<SpaceAreaModalContext | null>(null);
+  const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (localStorage.getItem(DISCLAIMER_DISMISSED_KEY) === "true") {
+      setDisclaimerDismissed(true);
+    }
+  }, []);
+
+  const dismissDisclaimer = () => {
+    setDisclaimerDismissed(true);
+    if (typeof window !== "undefined") {
+      localStorage.setItem(DISCLAIMER_DISMISSED_KEY, "true");
+    }
+  };
 
   useEffect(() => {
     if (!pinnedSlotKey) return;
@@ -81,6 +98,31 @@ export function NearbyResults({
     <section className="results">
       {error ? <div className="card empty">{error.message}</div> : null}
       {showResults && schools.length === 0 ? <div className="card empty">No schools with that public room type and coordinates were found.</div> : null}
+      {showResults && schools.length > 0 && !disclaimerDismissed ? (
+        <div className="card nearby-disclaimer" role="note">
+          <span className="nearby-disclaimer-icon" aria-hidden>⚠︎</span>
+          <p>
+            <span className="nearby-disclaimer-icon-inline" aria-hidden>⚠️ </span>
+            This tool only helps you find open spaces. To submit a permit application, you&apos;ll need to do it through{" "}
+            <a
+              href="https://tdsb.ebasefm.com/login.aspx"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              eBase
+            </a>
+            .
+          </p>
+          <button
+            type="button"
+            className="nearby-disclaimer-dismiss"
+            onClick={dismissDisclaimer}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      ) : null}
       {showResults ? schools.map((school, schoolIdx) => (
         <article
           className="card nearby-result"

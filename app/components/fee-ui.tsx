@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { isDeadlineBannerDismissed, restoreDeadlineBanner } from "@/app/components/deadline-banner";
+import { handleFeeBadgeTap } from "@/app/components/fee-badge-tap";
 import { CATEGORY_LABELS, getFee, type FeeCategory, type TimeOfUse } from "@/lib/fees";
 
 type SettingsTab = "subsidy" | "other";
@@ -95,7 +96,7 @@ export function FeeBadge({
           tabIndex={0}
           role="button"
           aria-pressed={open}
-          onClick={() => setOpen((o) => !o)}
+          onClick={() => handleFeeBadgeTap(setOpen)}
         >
           {formatCurrency(primary)}/hr
           <em className="fee-badge-cat">{outdoorRate != null ? category : `${SHORT_TIME_LABEL[timeOfUse]} · ${category}`}</em>

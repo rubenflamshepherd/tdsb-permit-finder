@@ -31,6 +31,7 @@ describe("resolveBookingSpaceIds", () => {
       ["Room 101", 8423],
       ["Room 102", 8424],
       ["Studio, Black Box", 8425],
+      ["Gymnasium Double - 1 & 2", 8426],
     ])],
     [7, new Map([["Gym A", 5119]])],
   ]);
@@ -51,6 +52,18 @@ describe("resolveBookingSpaceIds", () => {
 
   it("resolves multi-space labels when a space name contains a comma", () => {
     expect(resolveBookingSpaceIds(15, "Studio, Black Box, Room 101", spaceMap)).toEqual([8425, 8423]);
+  });
+
+  it("decodes HTML entities in booking labels before matching space names", () => {
+    expect(resolveBookingSpaceIds(15, "Gymnasium Double - 1 &amp; 2", spaceMap)).toEqual([8426]);
+    expect(resolveBookingSpaceIds(15, "Gymnasium Double - 1 &amp; 2, Room 101", spaceMap)).toEqual([8426, 8423]);
+  });
+
+  it("returns decoded unresolved labels when a booking label cannot be matched", () => {
+    expect(resolveBookingSpaces(15, "Gymnasium Double - 1 &amp; 3", spaceMap)).toEqual({
+      spaceIds: [],
+      unresolvedLabels: ["Gymnasium Double - 1 & 3"],
+    });
   });
 
   it("falls back to facility-level blocking when any piece of a multi-space label is unresolved", () => {

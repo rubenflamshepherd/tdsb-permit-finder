@@ -105,6 +105,17 @@ button.secondary.ghost:hover { background: #f4f8f4; }
 .available { background: #1f8f4d; }
 .partial { background: #e58b22; }
 .unavailable { background: #ca3d3d; }
+.nearby-disclaimer { padding: 12px 16px; display: flex; align-items: center; gap: 10px; background: #fdf2e2; border-color: rgba(229,139,34,.32); border-radius: 12px; box-shadow: none; backdrop-filter: none; }
+.nearby-disclaimer p { margin: 0; flex: 1; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.nearby-disclaimer a { color: var(--brand); font-weight: 700; text-decoration: underline; }
+.nearby-disclaimer a:hover { color: #134d2e; }
+.nearby-disclaimer-dismiss { flex: 0 0 auto; background: transparent; color: var(--muted); font-size: 20px; line-height: 1; padding: 2px 8px; border-radius: 8px; box-shadow: none; }
+.nearby-disclaimer-dismiss:hover { background: rgba(229,139,34,.16); color: var(--ink); transform: none; }
+.nearby-disclaimer-icon { display: none; }
+@media (max-width: 640px) {
+  .nearby-disclaimer-icon { flex: 0 0 auto; display: inline-block; font-size: 22px; line-height: 1; color: #b86b1a; padding-left: 2px; }
+  .nearby-disclaimer-icon-inline { display: none; }
+}
 .nearby-result { padding: 18px; display: grid; gap: 16px; }
 .nearby-heading { display: flex; justify-content: space-between; gap: 16px; align-items: start; }
 .nearby-heading h3 { margin: 0 0 4px; }

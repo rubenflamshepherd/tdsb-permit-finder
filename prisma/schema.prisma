@@ -69,7 +69,7 @@ model Space {
 model Booking {
   id           String   @id
   facilityId   Int
-  spaceIds     Int[]
+  spaceIds     Int[]    @default([])
   startsAt     DateTime
   endsAt       DateTime
   statusId     Int?

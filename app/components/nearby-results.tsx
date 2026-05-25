@@ -2,7 +2,7 @@
 
 import * as Tooltip from "@radix-ui/react-tooltip";
 import { format, parseISO } from "date-fns";
-import { useEffect, useState, type CSSProperties, type Dispatch, type SetStateAction } from "react";
+import { useEffect, useState, useSyncExternalStore, type CSSProperties, type Dispatch, type SetStateAction } from "react";
 import type { NearbySchool } from "@/lib/api-contracts";
 import type { FeeCategory } from "@/lib/fees";
 import { historicalHatchLevelForSlot } from "@/lib/nearby-slots";
@@ -45,6 +45,22 @@ function lastYearStatusForWeek(week: TooltipWeek): "Free" | "Booked" {
 }
 
 const DISCLAIMER_DISMISSED_KEY = "nearby-disclaimer-dismissed";
+const DISCLAIMER_CHANGE_EVENT = "nearby-disclaimer-changed";
+
+function subscribeDisclaimer(onStoreChange: () => void): () => void {
+  if (typeof window === "undefined") return () => {};
+  window.addEventListener(DISCLAIMER_CHANGE_EVENT, onStoreChange);
+  window.addEventListener("storage", onStoreChange);
+  return () => {
+    window.removeEventListener(DISCLAIMER_CHANGE_EVENT, onStoreChange);
+    window.removeEventListener("storage", onStoreChange);
+  };
+}
+
+function getDisclaimerDismissed(): boolean {
+  if (typeof window === "undefined") return false;
+  return localStorage.getItem(DISCLAIMER_DISMISSED_KEY) === "true";
+}
 
 export function NearbyResults({
   error,
@@ -67,20 +83,16 @@ export function NearbyResults({
   const [hoveredSlotKey, setHoveredSlotKey] = useState<string | null>(null);
   const [legendOpen, setLegendOpen] = useState(false);
   const [areaModalContext, setAreaModalContext] = useState<SpaceAreaModalContext | null>(null);
-  const [disclaimerDismissed, setDisclaimerDismissed] = useState(false);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (localStorage.getItem(DISCLAIMER_DISMISSED_KEY) === "true") {
-      setDisclaimerDismissed(true);
-    }
-  }, []);
+  const disclaimerDismissed = useSyncExternalStore(
+    subscribeDisclaimer,
+    getDisclaimerDismissed,
+    () => false,
+  );
 
   const dismissDisclaimer = () => {
-    setDisclaimerDismissed(true);
-    if (typeof window !== "undefined") {
-      localStorage.setItem(DISCLAIMER_DISMISSED_KEY, "true");
-    }
+    if (typeof window === "undefined") return;
+    localStorage.setItem(DISCLAIMER_DISMISSED_KEY, "true");
+    window.dispatchEvent(new Event(DISCLAIMER_CHANGE_EVENT));
   };
 
   useEffect(() => {

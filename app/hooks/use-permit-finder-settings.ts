@@ -5,7 +5,6 @@ import {
   CATEGORY_STORAGE_KEY,
   FEE_CATEGORIES,
   SCHEDULE_ORIENT_STORAGE_KEY,
-  type EffectiveScheduleOrient,
   type ScheduleOrient,
 } from "@/app/components/fee-ui";
 import type { FeeCategory } from "@/lib/fees";
@@ -13,8 +12,7 @@ import type { FeeCategory } from "@/lib/fees";
 export function usePermitFinderSettings() {
   const [feeCategory, setFeeCategory] = useState<FeeCategory>("B");
   const [categoryModalOpen, setCategoryModalOpen] = useState(false);
-  const [scheduleOrient, setScheduleOrient] = useState<ScheduleOrient>("auto");
-  const [autoEffectiveOrient, setAutoEffectiveOrient] = useState<EffectiveScheduleOrient>("times");
+  const [scheduleOrient, setScheduleOrient] = useState<ScheduleOrient>("times");
 
   useEffect(() => {
     window.setTimeout(() => {
@@ -30,14 +28,6 @@ export function usePermitFinderSettings() {
   }, []);
 
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 640px)");
-    const update = () => setAutoEffectiveOrient(mq.matches ? "days" : "times");
-    update();
-    mq.addEventListener("change", update);
-    return () => mq.removeEventListener("change", update);
-  }, []);
-
-  useEffect(() => {
     document.body.classList.toggle("schedule-orient-days", scheduleOrient === "days");
     document.body.classList.toggle("schedule-orient-times", scheduleOrient === "times");
   }, [scheduleOrient]);
@@ -49,15 +39,13 @@ export function usePermitFinderSettings() {
     return () => window.removeEventListener("keydown", onKey);
   }, [categoryModalOpen]);
 
-  const effectiveScheduleOrient: EffectiveScheduleOrient = scheduleOrient === "auto" ? autoEffectiveOrient : scheduleOrient;
-
   function selectFeeCategory(next: FeeCategory) {
     setFeeCategory(next);
     window.localStorage.setItem(CATEGORY_STORAGE_KEY, next);
     setCategoryModalOpen(false);
   }
 
-  function selectScheduleOrient(next: EffectiveScheduleOrient) {
+  function selectScheduleOrient(next: ScheduleOrient) {
     setScheduleOrient(next);
     window.localStorage.setItem(SCHEDULE_ORIENT_STORAGE_KEY, next);
   }
@@ -66,7 +54,7 @@ export function usePermitFinderSettings() {
     feeCategory,
     categoryModalOpen,
     setCategoryModalOpen,
-    effectiveScheduleOrient,
+    scheduleOrient,
     selectFeeCategory,
     selectScheduleOrient,
   };

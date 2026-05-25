@@ -3,8 +3,8 @@ name: Sync inventory
 on:
   workflow_dispatch:
   schedule:
-    # Daily at 08:15 UTC.
-    - cron: "15 8 * * *"
+    # Weekly on Sunday at 07:15 UTC.
+    - cron: "15 7 * * 0"
 
 permissions:
   contents: read

@@ -1,0 +1,50 @@
+name: Sync bookings
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Daily at 08:15 UTC.
+    - cron: "15 8 * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sync-bookings-production
+  cancel-in-progress: false
+
+jobs:
+  sync-bookings:
+    name: Sync production bookings
+    runs-on: ubuntu-latest
+    environment: production
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run prisma:generate
+
+      - name: Sync bookings
+        run: npm run sync:bookings
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          TDSB_BASE_URL: ${{ vars.TDSB_BASE_URL || 'https://tdsb.ebasefm.com' }}
+          BOOKING_SYNC_DAYS: ${{ vars.BOOKING_SYNC_DAYS || '180' }}
+          # Known-bad facilities belong here so STRICT_BOOKING_SYNC only fails
+          # for unexpected TDSB/API failures. If expected failures become too
+          # volatile to curate, set STRICT_BOOKING_SYNC=0 and monitor the
+          # printed failure summary instead.
+          BOOKING_SYNC_EXCLUDED_FACILITY_IDS: ${{ vars.BOOKING_SYNC_EXCLUDED_FACILITY_IDS || '175,314,660,769' }}
+          STRICT_BOOKING_SYNC: "1"

@@ -19,10 +19,7 @@ export function SiteFooter() {
   const isLoadingLastUpdated = isFetching && !lastInventorySyncAt;
 
   useEffect(() => {
-    if (!isLoadingLastUpdated) {
-      setLoadingPeriodCount(1);
-      return;
-    }
+    if (!isLoadingLastUpdated) return;
 
     const intervalId = window.setInterval(() => {
       setLoadingPeriodCount((count) => (count === 3 ? 1 : count + 1));

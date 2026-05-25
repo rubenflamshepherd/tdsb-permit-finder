@@ -119,6 +119,9 @@ The search UI reads from the local database. The `/api/space-types` and `/api/fa
 - `npm run sync:bookings` fetches bookings and excluded dates for the next `BOOKING_SYNC_DAYS` days.
 - `START_DATE=2026-06-01 END_DATE=2026-08-31 npm run sync:bookings` syncs an explicit window.
 - By default, booking sync refreshes successful facilities and leaves failed facilities' existing cache untouched. Set `STRICT_BOOKING_SYNC=1` to exit nonzero after partial failures.
+- Production inventory is refreshed by `.github/workflows/sync-inventory.yml` weekly.
+- Production bookings are refreshed by `.github/workflows/sync-bookings.yml` daily. Keep expected TDSB failures in `BOOKING_SYNC_EXCLUDED_FACILITY_IDS` so `STRICT_BOOKING_SYNC=1` only alerts on unexpected failures.
+- If expected failures become too volatile to maintain as exclusions, run scheduled booking sync with `STRICT_BOOKING_SYNC=0` instead and monitor the printed failure summary.
 
 ### Analytics
 

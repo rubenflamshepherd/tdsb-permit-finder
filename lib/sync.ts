@@ -112,15 +112,16 @@ export function resolveBookingSpaces(
   spaceMap: Map<number, Map<string, number>>,
 ): BookingSpaceResolution {
   if (!spacesLabel) return { spaceIds: [], unresolvedLabels: [] };
+  const decodedSpacesLabel = decodeHtmlEntities(spacesLabel);
   const names = spaceMap.get(facilityId);
-  if (!names) return { spaceIds: [], unresolvedLabels: [spacesLabel] };
+  if (!names) return { spaceIds: [], unresolvedLabels: [decodedSpacesLabel] };
 
-  const ids = resolveKnownSpaceLabelSequence(spacesLabel, names);
+  const ids = resolveKnownSpaceLabelSequence(decodedSpacesLabel, names);
   if (ids) return { spaceIds: dedupeIds(ids), unresolvedLabels: [] };
 
   return {
     spaceIds: [],
-    unresolvedLabels: unresolvedBookingSpaceLabels(spacesLabel, names),
+    unresolvedLabels: unresolvedBookingSpaceLabels(decodedSpacesLabel, names),
   };
 }
 
@@ -521,8 +522,9 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
 
   const bookingResolutionLogs: BookingSpaceResolutionLog[] = [];
   const bookings = successfulResults.flatMap((r) => r.bookings.map((b) => {
-    const resolution = resolveBookingSpaces(r.facilityId, b.spaces, spaceMap);
-    bookingResolutionLogs.push(bookingSpaceResolutionLog(r.facilityId, b.spaces, resolution));
+    const spacesLabel = decodeHtmlEntities(b.spaces);
+    const resolution = resolveBookingSpaces(r.facilityId, spacesLabel, spaceMap);
+    bookingResolutionLogs.push(bookingSpaceResolutionLog(r.facilityId, spacesLabel, resolution));
     return {
       id: String(b.id),
       facilityId: r.facilityId,
@@ -531,7 +533,7 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
       endsAt: parseLocalDateTime(b.end),
       statusId: b.status_id == null ? null : Number(b.status_id),
       purpose: b.purpose,
-      spacesLabel: b.spaces,
+      spacesLabel,
       rawJson: toJson(b),
       lastSyncedAt: new Date(),
     };
@@ -590,11 +592,19 @@ export async function syncHistoricalBookings(startDate?: string, endDate?: strin
     return result;
   });
 
-  const spaceMap = await spaceMapForFacilities(facilities.map((f) => f.id));
+  const failedFacilityIds = results.filter((r) => r.failed).map((r) => r.facilityId);
+  const successfulFacilityIds = bookingSyncSuccessfulFacilityIds(results);
+  const successfulResults = results.filter((r) => !r.failed);
+  if (failedFacilityIds.length > 0) {
+    console.warn(`historical booking sync had ${failedFacilityIds.length} failed facilities; leaving their existing cache untouched: ${failedFacilityIds.join(", ")}`);
+  }
+
+  const spaceMap = await spaceMapForFacilities(successfulFacilityIds);
   const bookingResolutionLogs: BookingSpaceResolutionLog[] = [];
-  const bookings = results.flatMap((r) => r.bookings.map((b) => {
-    const resolution = resolveBookingSpaces(r.facilityId, b.spaces, spaceMap);
-    bookingResolutionLogs.push(bookingSpaceResolutionLog(r.facilityId, b.spaces, resolution));
+  const bookings = successfulResults.flatMap((r) => r.bookings.map((b) => {
+    const spacesLabel = decodeHtmlEntities(b.spaces);
+    const resolution = resolveBookingSpaces(r.facilityId, spacesLabel, spaceMap);
+    bookingResolutionLogs.push(bookingSpaceResolutionLog(r.facilityId, spacesLabel, resolution));
     return {
       id: String(b.id),
       facilityId: r.facilityId,
@@ -603,14 +613,27 @@ export async function syncHistoricalBookings(startDate?: string, endDate?: strin
       endsAt: parseLocalDateTime(b.end),
       statusId: b.status_id == null ? null : Number(b.status_id),
       purpose: b.purpose,
-      spacesLabel: b.spaces,
+      spacesLabel,
       rawJson: toJson(b),
       lastSyncedAt: new Date(),
     };
   }));
   logBookingSpaceResolution(bookingResolutionLogs);
 
-  for (const group of chunks(bookings, 1000)) await prisma.booking.createMany({ data: group, skipDuplicates: true });
+  if (successfulFacilityIds.length > 0) {
+    const replacementWhere = bookingSyncReplacementWhere(successfulFacilityIds, start, end);
+    await prisma.booking.deleteMany({ where: replacementWhere.booking });
+    for (const group of chunks(bookings, 1000)) await prisma.booking.createMany({ data: group, skipDuplicates: true });
+  }
 
-  return { facilities: facilities.length, skippedFacilities, bookings: bookings.length, failures: results.filter((r) => r.failed).length, startDate: start, endDate: end };
+  return {
+    facilities: facilities.length,
+    skippedFacilities,
+    refreshedFacilities: successfulFacilityIds.length,
+    bookings: bookings.length,
+    failures: failedFacilityIds.length,
+    failedFacilityIds,
+    startDate: start,
+    endDate: end,
+  };
 }

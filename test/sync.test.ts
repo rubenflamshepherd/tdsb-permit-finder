@@ -7,6 +7,11 @@ import {
   resolveBookingSpaces,
   resolveBookingSpaceIds,
 } from "../lib/sync";
+import {
+  BOOKINGS_SYNC_STATUS_KEY,
+  INVENTORY_SYNC_STATUS_KEY,
+  buildSyncStatusResponse,
+} from "../lib/sync-status";
 import { parseLocalDateTime } from "../lib/time";
 
 describe("parseFacilityIdList", () => {
@@ -130,5 +135,49 @@ describe("booking sync replacement planning", () => {
         endsOn: { gte: parseLocalDateTime("2026-06-01 00:00:00") },
       },
     });
+  });
+});
+
+describe("sync status keys", () => {
+  it("exposes stable string keys for the inventory and bookings sync rows", () => {
+    expect(INVENTORY_SYNC_STATUS_KEY).toBe("inventory");
+    expect(BOOKINGS_SYNC_STATUS_KEY).toBe("bookings");
+  });
+});
+
+describe("buildSyncStatusResponse", () => {
+  const inventoryAt = new Date("2026-05-25T05:26:43Z");
+  const bookingsAt = new Date("2026-05-28T11:50:00Z");
+
+  it("maps inventory and bookings rows into the API response shape", () => {
+    expect(
+      buildSyncStatusResponse([
+        { key: INVENTORY_SYNC_STATUS_KEY, lastSuccessfulSyncAt: inventoryAt },
+        { key: BOOKINGS_SYNC_STATUS_KEY, lastSuccessfulSyncAt: bookingsAt },
+      ]),
+    ).toEqual({
+      inventory: { lastSuccessfulSyncAt: inventoryAt.toISOString() },
+      bookings: { lastSuccessfulSyncAt: bookingsAt.toISOString() },
+    });
+  });
+
+  it("returns null entries for missing keys so the footer can render a fallback", () => {
+    expect(buildSyncStatusResponse([])).toEqual({ inventory: null, bookings: null });
+    expect(
+      buildSyncStatusResponse([
+        { key: INVENTORY_SYNC_STATUS_KEY, lastSuccessfulSyncAt: inventoryAt },
+      ]),
+    ).toEqual({
+      inventory: { lastSuccessfulSyncAt: inventoryAt.toISOString() },
+      bookings: null,
+    });
+  });
+
+  it("ignores unknown keys so a stray row can't pollute the response", () => {
+    expect(
+      buildSyncStatusResponse([
+        { key: "historical-bookings", lastSuccessfulSyncAt: bookingsAt },
+      ]),
+    ).toEqual({ inventory: null, bookings: null });
   });
 });

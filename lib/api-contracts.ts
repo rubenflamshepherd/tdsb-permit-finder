@@ -71,4 +71,7 @@ export type SyncStatusResponse = {
   inventory: {
     lastSuccessfulSyncAt: string;
   } | null;
+  bookings: {
+    lastSuccessfulSyncAt: string;
+  } | null;
 };

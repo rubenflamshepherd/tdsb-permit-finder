@@ -7,16 +7,17 @@ import { formatTdsbTimestamp } from "@/lib/time";
 
 export function SiteFooter() {
   const [loadingPeriodCount, setLoadingPeriodCount] = useState(1);
-  const { data: syncStatus = { inventory: null }, isFetching } = useQuery({
+  const { data: syncStatus = { inventory: null, bookings: null }, isFetching } = useQuery({
     queryKey: ["sync-status"],
     queryFn: async () => {
       const res = await fetch("/api/sync-status");
-      if (!res.ok) return { inventory: null } satisfies SyncStatusResponse;
+      if (!res.ok) return { inventory: null, bookings: null } satisfies SyncStatusResponse;
       return (await res.json()) as SyncStatusResponse;
     },
   });
-  const lastInventorySyncAt = syncStatus.inventory?.lastSuccessfulSyncAt;
-  const isLoadingLastUpdated = isFetching && !lastInventorySyncAt;
+  const lastUpdatedAt =
+    syncStatus.bookings?.lastSuccessfulSyncAt ?? syncStatus.inventory?.lastSuccessfulSyncAt;
+  const isLoadingLastUpdated = isFetching && !lastUpdatedAt;
 
   useEffect(() => {
     if (!isLoadingLastUpdated) return;
@@ -30,9 +31,9 @@ export function SiteFooter() {
 
   return (
     <footer className="site-footer">
-      {lastInventorySyncAt ? (
+      {lastUpdatedAt ? (
         <p className="site-footer-updated">
-          Last Updated <time dateTime={lastInventorySyncAt}>{formatTdsbTimestamp(lastInventorySyncAt)}</time>
+          Last Updated <time dateTime={lastUpdatedAt}>{formatTdsbTimestamp(lastUpdatedAt)}</time>
         </p>
       ) : isLoadingLastUpdated ? (
         <p className="site-footer-updated" aria-label="Last update: Loading">

@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { addDays, format, isBefore } from "date-fns";
 import { prisma } from "./prisma";
 import { decodeHtmlEntities } from "./html-entities";
-import { INVENTORY_SYNC_STATUS_KEY } from "./sync-status";
+import { BOOKINGS_SYNC_STATUS_KEY, INVENTORY_SYNC_STATUS_KEY } from "./sync-status";
 import { TdsbClient, TdsbFacility, TdsbSpace, TdsbSpaceDetails } from "./tdsb-client";
 import { parseLocalDateTime } from "./time";
 
@@ -560,11 +560,7 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     await prisma.$transaction(writes);
   }
 
-  if (failedFacilityIds.length > 0 && strictBookingSyncEnabled()) {
-    throwStrictBookingSyncFailure(failedFacilityIds);
-  }
-
-  return {
+  const summary = {
     facilities: facilities.length,
     skippedFacilities,
     refreshedFacilities: successfulFacilityIds.length,
@@ -575,6 +571,21 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
     startDate: start,
     endDate: end,
   };
+
+  if (failedFacilityIds.length === 0 && successfulFacilityIds.length > 0) {
+    const completedAt = new Date();
+    await prisma.syncStatus.upsert({
+      where: { key: BOOKINGS_SYNC_STATUS_KEY },
+      create: { key: BOOKINGS_SYNC_STATUS_KEY, lastSuccessfulSyncAt: completedAt, summaryJson: toJson(summary) },
+      update: { lastSuccessfulSyncAt: completedAt, summaryJson: toJson(summary) },
+    });
+  }
+
+  if (failedFacilityIds.length > 0 && strictBookingSyncEnabled()) {
+    throwStrictBookingSyncFailure(failedFacilityIds);
+  }
+
+  return summary;
 }
 
 export async function syncHistoricalBookings(startDate?: string, endDate?: string, facilityIds?: number[]) {

@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { prisma } from "../lib/prisma";
+import { disconnectPrisma, getPrisma } from "../lib/prisma";
 import { computeStats, SQM_PER_SQFT } from "../lib/space-area-stats";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -27,6 +27,7 @@ function disagreementPct(sqft: number, sqm: number): number {
 }
 
 async function main() {
+  const prisma = await getPrisma();
   const spaces = await prisma.space.findMany({
     where: {
       spaceTypeId: { not: null },
@@ -124,5 +125,5 @@ async function main() {
 try {
   await main();
 } finally {
-  await prisma.$disconnect();
+  await disconnectPrisma();
 }

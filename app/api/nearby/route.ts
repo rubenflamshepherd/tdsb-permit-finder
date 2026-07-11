@@ -5,7 +5,7 @@ import { distanceKm } from "@/lib/distance";
 import { decodeHtmlEntities } from "@/lib/html-entities";
 import { computeNearbySchedule } from "@/lib/nearby-slots";
 import { facilityPictureUrls } from "@/lib/pictures";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 
 export async function POST(request: Request) {
   let body: unknown;
@@ -18,6 +18,7 @@ export async function POST(request: Request) {
   const parsed = nearbySearchRequestSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: parsed.error.flatten() }, { status: 400 });
   const search = parsed.data;
+  const prisma = await getPrisma();
   const origin = { lat: search.lat, lng: search.lng };
   const weekStart = startOfWeek(parseISO(search.startDate), { weekStartsOn: 1 });
   const rangeStart = weekStart;

@@ -3,9 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("SUPABASE_CONNECTION_STRING")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 model Facility {

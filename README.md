@@ -139,13 +139,21 @@ This repo now includes a Next.js/Prisma webapp for searching cached TDSB availab
 ```bash
 npm install
 cp .env.example .env.local
-# set DATABASE_URL to a Postgres/Supabase database
+# set DATABASE_URL to a local PostgreSQL database
 npm run prisma:generate
 npm run prisma:migrate
 npm run sync:inventory
 npm run sync:bookings
 npm run dev
 ```
+
+Production and staging use GCP Cloud SQL through the Cloud SQL Node.js
+connector. The app requires the `CLOUD_SQL_*` variables documented in
+`.env.example`; Vercel additionally receives the connector service-account key
+as `GCP_SERVICE_ACCOUNT_KEY_JSON`. GitHub Actions authenticates with its own
+service-account key and uses the same connector path. See
+[`docs/cloud-sql-migration.md`](docs/cloud-sql-migration.md) for setup, data
+migration, validation, and rollback instructions.
 
 The search UI reads from the local database. The `/api/space-types` and `/api/facilities` endpoints fall back to live TDSB reads when the database has not been synced, but `/api/search` requires synced local data.
 

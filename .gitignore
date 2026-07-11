@@ -7,3 +7,4 @@ dist
 
 tsconfig.tsbuildinfo
 .vercel
+gha-creds-*.json

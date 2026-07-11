@@ -24,7 +24,9 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@google-cloud/cloud-sql-connector": "^1.11.2",
     "@next/third-parties": "^16.2.6",
+    "@prisma/adapter-pg": "^6.19.3",
     "@prisma/client": "^6.19.3",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@tanstack/react-query": "latest",
@@ -32,6 +34,8 @@
     "date-fns-tz": "^3.2.0",
     "maplibre-gl": "latest",
     "next": "latest",
+    "google-auth-library": "^10.9.0",
+    "pg": "^8.22.0",
     "prisma": "^6.19.3",
     "react": "latest",
     "react-dom": "latest",
@@ -39,6 +43,7 @@
   },
   "devDependencies": {
     "@types/node": "latest",
+    "@types/pg": "latest",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "latest",

@@ -1,38 +1,49 @@
 # Agent Notes
 
-## Prisma Migrations
+## PostgreSQL and Prisma
 
-This project uses Prisma with a Supabase Postgres database. The normal app
-`DATABASE_URL` points at the Supabase **transaction pooler** on port `6543`
-with `pgbouncer=true` — that pooler does not support DDL, so it can't be used
-for migrations.
+The deployed app uses PostgreSQL on GCP Cloud SQL. Runtime database access goes
+through the Cloud SQL Node.js connector in `lib/prisma.ts`; it does not connect
+directly to the instance IP. If `CLOUD_SQL_INSTANCE_CONNECTION_NAME` is unset,
+Prisma falls back to `DATABASE_URL`, which is the normal path for local
+development and tests.
 
-`schema.prisma` has `directUrl = env("SUPABASE_CONNECTION_STRING")` so prisma
-picks up a migration-capable URL from env automatically. Set
-`SUPABASE_CONNECTION_STRING` in `.env` to the Supabase **session pooler** URL
-— same host as the transaction pooler but **port 5432** and no
-`pgbouncer=true`. (The "direct connection" URL on `db.<ref>.supabase.co:5432`
-also works but is IPv6-only on free tier, so the session pooler is the
-reliable choice over IPv4.) The session-pooler URL is also in
-`.env.staging.local` / `.env.production.local` for the respective databases.
-
-Use `npm run prisma:migrate` (= `prisma migrate dev`) locally to create and
-apply new migrations. It needs an interactive terminal — if you're scripting
-or running in a non-TTY context, hand-write the migration SQL under
+Use a local PostgreSQL database with `npm run prisma:migrate` (`prisma migrate
+dev`) to create and apply migrations. It requires an interactive terminal. In
+non-TTY contexts, hand-write migration SQL under
 `prisma/migrations/<timestamp>_<name>/migration.sql` following the existing
-style, then apply with `prisma migrate deploy`.
+style, then apply it with `prisma migrate deploy`.
 
-For applying migrations to staging/production (or any other non-interactive
-context):
+Remote Prisma CLI commands do not use the application's Node connector. Start
+Cloud SQL Auth Proxy with Application Default Credentials or a service-account
+key stored outside the repository:
+
+```bash
+cloud-sql-proxy "$CLOUD_SQL_INSTANCE_CONNECTION_NAME" --port 5433
+```
+
+In a second terminal, load the environment-specific configuration and use the
+proxy-backed migrator URL:
 
 ```bash
 set -a; source .env.production.local; set +a
-DATABASE_URL="$SUPABASE_CONNECTION_STRING" npx prisma migrate deploy
+DATABASE_URL="$CLOUD_SQL_MIGRATION_URL" npx prisma migrate deploy
 ```
 
-`migrate deploy` is idempotent — it applies any committed-but-unapplied
-migrations and does nothing if everything is up to date. Use this in CI, on
-prod cutovers, and after pulling a branch with new migrations.
+`migrate deploy` is idempotent. Use it for staging and production cutovers and
+after pulling a branch with committed migrations. Never run `migrate dev`
+against staging or production.
+
+The deployed environments require:
+
+- `CLOUD_SQL_INSTANCE_CONNECTION_NAME`
+- `CLOUD_SQL_DATABASE`
+- `CLOUD_SQL_SCHEMA` (`tdsb_finder` for deployed environments)
+- `CLOUD_SQL_USER`
+- `CLOUD_SQL_PASSWORD`
+- `CLOUD_SQL_POOL_MAX` (`2` for Vercel, `10` for sync jobs)
+- Google Application Default Credentials, or `GCP_SERVICE_ACCOUNT_KEY_JSON`
+  on Vercel
 
 After changing `prisma/schema.prisma`, run:
 
@@ -48,3 +59,5 @@ After applying inventory-related schema changes, refresh cached TDSB data with:
 npm run sync:inventory
 ```
 
+See `docs/cloud-sql-migration.md` for provisioning, data-copy, validation,
+cutover, and rollback steps.

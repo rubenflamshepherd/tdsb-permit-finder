@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { SyncStatusResponse } from "@/lib/api-contracts";
-import { prisma } from "@/lib/prisma";
+import { getPrisma } from "@/lib/prisma";
 import {
   BOOKINGS_SYNC_STATUS_KEY,
   INVENTORY_SYNC_STATUS_KEY,
@@ -9,6 +9,7 @@ import {
 
 export async function GET() {
   try {
+    const prisma = await getPrisma();
     const rows = await prisma.syncStatus.findMany({
       where: { key: { in: [INVENTORY_SYNC_STATUS_KEY, BOOKINGS_SYNC_STATUS_KEY] } },
       select: { key: true, lastSuccessfulSyncAt: true },

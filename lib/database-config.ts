@@ -34,6 +34,14 @@ function poolMax(env: Environment): number {
   return value;
 }
 
+function databaseSchema(env: Environment): string {
+  const schema = env.CLOUD_SQL_SCHEMA?.trim() || "tdsb_finder";
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(schema)) {
+    throw new Error("CLOUD_SQL_SCHEMA must be a valid PostgreSQL identifier");
+  }
+  return schema;
+}
+
 function serviceAccountCredentials(raw: string | undefined): ServiceAccountCredentials | undefined {
   if (!raw?.trim()) return undefined;
 
@@ -68,7 +76,7 @@ export function readDatabaseConfig(env: Environment = process.env): DatabaseConf
     kind: "cloud-sql",
     instanceConnectionName,
     database: required(env, "CLOUD_SQL_DATABASE").trim(),
-    schema: env.CLOUD_SQL_SCHEMA?.trim() || "tdsb_finder",
+    schema: databaseSchema(env),
     user: required(env, "CLOUD_SQL_USER").trim(),
     password: required(env, "CLOUD_SQL_PASSWORD"),
     poolMax: poolMax(env),

@@ -35,6 +35,12 @@ describe("readDatabaseConfig", () => {
     expect(readDatabaseConfig({ ...cloudEnv, CLOUD_SQL_SCHEMA: "custom" })).toMatchObject({ schema: "custom" });
   });
 
+  it.each(["public, malicious", "schema-name", "1schema"])('rejects invalid schema name "%s"', (schema) => {
+    expect(() => readDatabaseConfig({ ...cloudEnv, CLOUD_SQL_SCHEMA: schema })).toThrow(
+      "CLOUD_SQL_SCHEMA must be a valid PostgreSQL identifier",
+    );
+  });
+
   it.each(["0", "21", "1.5", "many"])('rejects invalid pool size "%s"', (poolMax) => {
     expect(() => readDatabaseConfig({ ...cloudEnv, CLOUD_SQL_POOL_MAX: poolMax })).toThrow(
       "CLOUD_SQL_POOL_MAX must be an integer between 1 and 20",

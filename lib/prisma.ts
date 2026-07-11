@@ -36,6 +36,7 @@ async function createPrismaClient(): Promise<PrismaClient> {
         user: config.user,
         password: config.password,
         database: config.database,
+        options: `-c search_path=${config.schema}`,
         max: config.poolMax,
         connectionTimeoutMillis: 10_000,
         idleTimeoutMillis: 30_000,

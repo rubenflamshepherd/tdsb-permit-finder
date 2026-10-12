@@ -335,9 +335,8 @@ async function upsertSpaceRows(rows: SpaceRow[]): Promise<void> {
   }
 }
 
-export async function syncInventory(permitTypeId = 3) {
+export async function syncInventory(permitTypeId = 3, client = new TdsbClient()) {
   const prisma = await getPrisma();
-  const client = new TdsbClient();
   const concurrency = Number(process.env.SYNC_CONCURRENCY ?? 12);
   const [spaceTypes, facilities] = await Promise.all([client.spaceTypes(permitTypeId), client.facilities(permitTypeId)]);
 
@@ -498,9 +497,8 @@ function throwStrictBookingSyncFailure(failedFacilityIds: number[]): never {
   );
 }
 
-export async function syncBookings(startDate?: string, endDate?: string, facilityIds?: number[]) {
+export async function syncBookings(startDate?: string, endDate?: string, facilityIds?: number[], client = new TdsbClient()) {
   const prisma = await getPrisma();
-  const client = new TdsbClient();
   const start = startDate ?? format(new Date(), "yyyy-MM-dd");
   const end = endDate ?? format(addDays(new Date(), Number(process.env.BOOKING_SYNC_DAYS ?? 180)), "yyyy-MM-dd");
   const concurrency = Number(process.env.SYNC_CONCURRENCY ?? 12);
@@ -593,9 +591,8 @@ export async function syncBookings(startDate?: string, endDate?: string, facilit
   return summary;
 }
 
-export async function syncHistoricalBookings(startDate?: string, endDate?: string, facilityIds?: number[]) {
+export async function syncHistoricalBookings(startDate?: string, endDate?: string, facilityIds?: number[], client = new TdsbClient()) {
   const prisma = await getPrisma();
-  const client = new TdsbClient();
   const start = startDate ?? defaultHistoricalBookingStartDate();
   const end = endDate ?? format(new Date(), "yyyy-MM-dd");
   const concurrency = Number(process.env.SYNC_CONCURRENCY ?? 12);

@@ -32,9 +32,9 @@
     "@tanstack/react-query": "latest",
     "date-fns": "latest",
     "date-fns-tz": "^3.2.0",
+    "google-auth-library": "^10.9.0",
     "maplibre-gl": "latest",
     "next": "latest",
-    "google-auth-library": "^10.9.0",
     "pg": "^8.22.0",
     "prisma": "^6.19.3",
     "react": "latest",
@@ -48,6 +48,7 @@
     "@types/react-dom": "latest",
     "eslint": "latest",
     "eslint-config-next": "latest",
+    "playwright": "^1.64.0",
     "tsx": "latest",
     "typescript": "latest",
     "vitest": "latest"

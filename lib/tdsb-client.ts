@@ -161,12 +161,6 @@ export class TdsbClient {
     return parseCataloguePictureFilenames(html);
   }
 
-  async spacePictures(spaceId: number): Promise<string[]> {
-    const url = new URL(`/rentals/catalogue/space_details/${spaceId}`, this.baseUrl);
-    const html = await readText(await this.fetch(url, requestOptions({ cache: "no-store" })));
-    return parseCataloguePictureFilenames(html);
-  }
-
   async spaceDetails(spaceId: number): Promise<TdsbSpaceDetails> {
     const url = new URL(`/rentals/catalogue/space_details/${spaceId}`, this.baseUrl);
     const html = await readText(await this.fetch(url, requestOptions({ cache: "no-store" })));

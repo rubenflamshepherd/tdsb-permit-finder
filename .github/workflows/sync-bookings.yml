@@ -41,6 +41,10 @@ jobs:
       - name: Generate Prisma client
         run: npm run prisma:generate
 
+      # TDSB's API sits behind a bot challenge that only a real browser can pass.
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
       - name: Sync bookings
         run: npm run sync:bookings
         env:

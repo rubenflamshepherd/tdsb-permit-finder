@@ -1,8 +1,16 @@
-const BASE_URL = process.env.TDSB_BASE_URL ?? "https://tdsb.ebasefm.com";
+export const BASE_URL = process.env.TDSB_BASE_URL ?? "https://tdsb.ebasefm.com";
 const TIMEOUT_MS = Number(process.env.TDSB_TIMEOUT_MS ?? 15000);
 
 function requestOptions(init: RequestInit = {}): RequestInit {
   return { ...init, signal: AbortSignal.timeout(TIMEOUT_MS) };
+}
+
+export type TdsbFetch = (url: URL, init?: RequestInit) => Promise<Response>;
+
+// TDSB fronts its API with Imperva/Incapsula, which answers non-browser
+// clients with an HTML challenge page instead of the requested data.
+export function isTdsbBotChallenge(body: string): boolean {
+  return body.includes("_Incapsula_Resource");
 }
 
 export type TdsbSpaceType = { id: string; name: string; request_by_qty?: string };
@@ -29,8 +37,9 @@ export type TdsbSpaceDetails = {
 };
 
 async function readJson<T>(response: Response): Promise<T> {
-  if (!response.ok) throw new Error(`TDSB request failed ${response.status}: ${response.url}`);
-  return (await response.json()) as T;
+  const body = await readText(response);
+  if (isTdsbBotChallenge(body)) throw new Error(`TDSB request blocked by bot protection: ${response.url}`);
+  return JSON.parse(body) as T;
 }
 
 async function readText(response: Response): Promise<string> {
@@ -102,12 +111,12 @@ export function parseSpaceDetails(html: string): TdsbSpaceDetails {
 }
 
 export class TdsbClient {
-  constructor(private readonly baseUrl = BASE_URL) {}
+  constructor(private readonly baseUrl = BASE_URL, private readonly fetch: TdsbFetch = globalThis.fetch) {}
 
   async spaceTypes(permitTypeId = 3): Promise<TdsbSpaceType[]> {
     const url = new URL("/cu/api/space_types/fetch_available", this.baseUrl);
     url.searchParams.set("permit_type_id", String(permitTypeId));
-    return readJson<TdsbSpaceType[]>(await fetch(url, requestOptions({ cache: "no-store" })));
+    return readJson<TdsbSpaceType[]>(await this.fetch(url, requestOptions({ cache: "no-store" })));
   }
 
   async facilities(permitTypeId = 3): Promise<TdsbFacility[]> {
@@ -115,12 +124,12 @@ export class TdsbClient {
     url.searchParams.set("is_admin", "0");
     url.searchParams.set("permit_type_id", String(permitTypeId));
     url.searchParams.set("user_id", "0");
-    return readJson<TdsbFacility[]>(await fetch(url, requestOptions({ cache: "no-store" })));
+    return readJson<TdsbFacility[]>(await this.fetch(url, requestOptions({ cache: "no-store" })));
   }
 
   async spaces(schoolId: number, availableOnly = true): Promise<TdsbSpace[]> {
     const body = new URLSearchParams({ school_id: String(schoolId), available_only: String(availableOnly) });
-    return readJson<TdsbSpace[]>(await fetch(new URL("/rentals/xhr/spaces/fetch", this.baseUrl), requestOptions({
+    return readJson<TdsbSpace[]>(await this.fetch(new URL("/rentals/xhr/spaces/fetch", this.baseUrl), requestOptions({
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body,
@@ -135,7 +144,7 @@ export class TdsbClient {
     url.searchParams.set("filters[filter_type]", "facility");
     url.searchParams.set("filters[school_id]", String(schoolId));
     url.searchParams.set("filters[space_id]", String(spaceId));
-    return readJson<TdsbBooking[]>(await fetch(url, requestOptions({ cache: "no-store" })));
+    return readJson<TdsbBooking[]>(await this.fetch(url, requestOptions({ cache: "no-store" })));
   }
 
   async specialDates(schoolId: number, startDate: string, endDate: string): Promise<TdsbSpecialDate[]> {
@@ -143,24 +152,24 @@ export class TdsbClient {
     url.searchParams.set("start_date", startDate);
     url.searchParams.set("end_date", endDate);
     url.searchParams.set("school_id", String(schoolId));
-    return readJson<TdsbSpecialDate[]>(await fetch(url, requestOptions({ cache: "no-store" })));
+    return readJson<TdsbSpecialDate[]>(await this.fetch(url, requestOptions({ cache: "no-store" })));
   }
 
   async facilityPictures(schoolId: number): Promise<string[]> {
     const url = new URL(`/rentals/catalogue/school_details/${schoolId}`, this.baseUrl);
-    const html = await readText(await fetch(url, requestOptions({ cache: "no-store" })));
+    const html = await readText(await this.fetch(url, requestOptions({ cache: "no-store" })));
     return parseCataloguePictureFilenames(html);
   }
 
   async spacePictures(spaceId: number): Promise<string[]> {
     const url = new URL(`/rentals/catalogue/space_details/${spaceId}`, this.baseUrl);
-    const html = await readText(await fetch(url, requestOptions({ cache: "no-store" })));
+    const html = await readText(await this.fetch(url, requestOptions({ cache: "no-store" })));
     return parseCataloguePictureFilenames(html);
   }
 
   async spaceDetails(spaceId: number): Promise<TdsbSpaceDetails> {
     const url = new URL(`/rentals/catalogue/space_details/${spaceId}`, this.baseUrl);
-    const html = await readText(await fetch(url, requestOptions({ cache: "no-store" })));
+    const html = await readText(await this.fetch(url, requestOptions({ cache: "no-store" })));
     return parseSpaceDetails(html);
   }
 }
